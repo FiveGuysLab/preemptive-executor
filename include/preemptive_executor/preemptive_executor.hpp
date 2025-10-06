@@ -22,9 +22,9 @@ namespace preemptive_executor
     class WorkerGroup {
         public:
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerGroup(std::vector<int> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
+            WorkerGroup(std::vector<pid_t> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
             ~WorkerGroup();
-            std::vector<int> thread_ids;
+            std::vector<pid_t> thread_ids;
             std::shared_ptr<std::counting_semaphore> semaphore;
     };
 
