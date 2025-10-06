@@ -1,10 +1,8 @@
-#ifndef PREEMPTIVE_EDF_EXECUTOR__PREEMPTIVE_EDF_EXECUTOR_HPP_
-#define PREEMPTIVE_EDF_EXECUTOR__PREEMPTIVE_EDF_EXECUTOR_HPP_
+#ifndef PREEMPTIVE_EXECUTOR
+#define PREEMPTIVE_EXECUTOR
 
 #include <rmw/rmw.h>
 
-#include <cassert>
-#include <cstdlib>
 #include <chrono>
 #include <memory>
 #include <fstream>
@@ -17,91 +15,69 @@
 
 #include "rclcpp/executor.hpp"
 #include "rclcpp/macros.hpp"
-#include "preemptive_executor/preemptive_executor_interface.hpp"
 #include "rclcpp/visibility_control.hpp"
 
 namespace preemptive_executor
 {
+    class WorkerThread {
+        public:
+            //constructor for WorkerThread should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
+            WorkerThread(std::vector<int> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
+            ~WorkerThread();
+            std::vector<int> thread_ids;
+            std::shared_ptr<std::counting_semaphore> semaphore;
+    };
 
-    /// Preemptive-based Earliest Deadline First (EDF) Executor
-    /**
-     * This executor implements a preemptive-based EDF scheduling algorithm for ROS 2 callbacks.
-     * It extends the multi-threaded execution model with priority and deadline awareness.
-     */
+    struct ReadyQueue {
+        std::mutex mutex;
+        std::queue<rclcpp::AnyExecutable> queue;
+    };
+
+    struct ThreadAttributes {
+        public:
+            ThreadAttributes(int thread_id, int deadline, int period, int runtime): thread_id(thread_id), deadline(deadline), period(period), runtime(runtime) {}
+            int deadline;
+            int period;
+            int runtime;           
+    };
+
+
     class PreemptiveExecutor : public rclcpp::Executor
     {
     public:
         RCLCPP_SMART_PTR_DEFINITIONS(PreemptiveExecutor)
 
-        /// Constructor for PreemptiveEDFExecutor.
-        /**
-         * \param options common options for all executors
-         * \param number_of_threads number of threads to have in the thread pool,
-         *   the default 0 will use the number of cpu cores found (minimum of 2)
-         * \param timeout maximum time to wait for work
-         */
-        RCLCPP_PUBLIC
-        explicit PreemptiveExecutor(
-            const rclcpp::ExecutorOptions &options = rclcpp::ExecutorOptions(),
-            size_t number_of_threads = 0,
-            std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1));
+        //constructor for PreemptiveExecutor
+        RCLCPP_PUBLIC explicit PreemptiveExecutor(); //leaving ctor params blank for now
 
-        RCLCPP_PUBLIC
-        virtual ~PreemptiveExecutor();
-
-        /**
-         * \sa rclcpp::Executor:spin() for more details
-         * \throws std::runtime_error when spin() called while already spinning
-         */
-        RCLCPP_PUBLIC
-        void
-        spin() override;
-
-        /// Get the number of threads in the thread pool
-        RCLCPP_PUBLIC
-        size_t
-        get_number_of_threads() const;
+        RCLCPP_PUBLIC virtual ~PreemptiveExecutor();
+        RCLCPP_PUBLIC size_t get_number_of_threads() const;
 
     protected:
-        /// Main execution loop for each thread
-        /**
-         * \param this_thread_number thread identifier for this execution thread
-         */
-        RCLCPP_PUBLIC
-        void
-        run(size_t this_thread_number);
+        RCLCPP_PUBLIC void spin() override;
+        RCLCPP_PUBLIC void run(size_t this_thread_number);
+        bool get_next_executable(rclcpp::AnyExecutable &any_executable, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1));
+        bool get_next_ready_executable( rclcpp::AnyExecutable &any_executable);
+        void wait_for_work(std::chrono::nanoseconds timeout);
 
-        bool
-        get_next_executable(rclcpp::AnyExecutable &any_executable, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1));
+        //helper methods for preemptive executor
 
     private:
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)
+        
+        //data structures for preemptive executor
+        std::unordered_map<int, *ThreadGroup> chain_thead_group_map; 
+        std::unordered_map<int, *ThreadGroup> callback_id_thead_group_map; 
+        std::unordered_map<int, int> callback_id_chain_map; 
+        std::unordered_map<*ThreadGroup, vector<*WorkerThread>> thread_group_worker_map; 
+        std::unordered_map<CallbackGroup, std::mutex> callback_group_mutex_map; 
+        std::unordered_map<int, vector<WorkerThread>> chain_id_worker_map; 
+        std::unordered_map<int, ReadyQueue> chain_id_ready_queue_map; 
+        std::unordered_map<*ThreadGroup, ThreadAttributes> thread_group_attributes_map; 
 
-        /// Get the next executable with priority and deadline consideration
-        /**
-         * \param any_exec reference to store the next executable
-         * \param timeout maximum time to wait for work
-         * \return true if executable was found, false otherwise
-         */
-        bool
-        get_next_ready_executable(
-            rclcpp::AnyExecutable &any_executable);
-
-        void
-        wait_for_work(std::chrono::nanoseconds timeout);
-
-        /// Thread synchronization mutex
-        std::mutex wait_mutex_;
-
-        /// Number of threads in the thread pool
-        size_t number_of_threads_;
-
-        /// Timeout for getting next executable
-        std::chrono::nanoseconds next_exec_timeout_;
-
-        /// TODO : Need to add priority and deadline maps based on README data
+        //TODO: need a map bw chain id and ready set after ready set is defined 
     };
 
-} // namespace preemptive_executor
+} 
 
-#endif // PREEMPTIVE_EDF_EXECUTOR__PREEMPTIVE_EDF_EXECUTOR_HPP_
+#endif 
