@@ -19,11 +19,11 @@
 
 namespace preemptive_executor
 {
-    class WorkerThread {
+    class WorkerGroup {
         public:
-            //constructor for WorkerThread should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerThread(std::vector<int> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
-            ~WorkerThread();
+            //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
+            WorkerGroup(std::vector<int> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
+            ~WorkerGroup();
             std::vector<int> thread_ids;
             std::shared_ptr<std::counting_semaphore> semaphore;
     };
@@ -53,6 +53,9 @@ namespace preemptive_executor
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor();
         RCLCPP_PUBLIC size_t get_number_of_threads() const;
 
+        // // Timeout for getting next executable
+        // std::chrono::nanoseconds next_exec_timeout_;
+
     protected:
         RCLCPP_PUBLIC void spin() override;
         RCLCPP_PUBLIC void run(size_t this_thread_number);
@@ -69,9 +72,9 @@ namespace preemptive_executor
         std::unordered_map<int, *ThreadGroup> chain_thead_group_map; 
         std::unordered_map<int, *ThreadGroup> callback_id_thead_group_map; 
         std::unordered_map<int, int> callback_id_chain_map; 
-        std::unordered_map<*ThreadGroup, vector<*WorkerThread>> thread_group_worker_map; 
-        std::unordered_map<CallbackGroup, std::mutex> callback_group_mutex_map; 
-        std::unordered_map<int, vector<WorkerThread>> chain_id_worker_map; 
+        std::unordered_map<*ThreadGroup, vector<*WorkerGroup>> thread_group_worker_map; 
+        std::unordered_map<CallbackGroup, std::mutex> callback_group_mutex_map; //for mutually exclusive cg's we need a mutex
+        std::unordered_map<int, vector<WorkerGroup>> chain_id_worker_map; 
         std::unordered_map<int, ReadyQueue> chain_id_ready_queue_map; 
         std::unordered_map<*ThreadGroup, ThreadAttributes> thread_group_attributes_map; 
 
