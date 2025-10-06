@@ -26,6 +26,7 @@ namespace preemptive_executor
             ~WorkerGroup();
             std::vector<pid_t> thread_ids;
             std::shared_ptr<std::counting_semaphore> semaphore;
+            ReadyQueue ready_queue;
     };
 
     struct ReadyQueue {
@@ -75,7 +76,6 @@ namespace preemptive_executor
         std::unordered_map<*ThreadGroup, vector<*WorkerGroup>> thread_group_worker_map; 
         std::unordered_map<CallbackGroup, std::mutex> callback_group_mutex_map; //for mutually exclusive cg's we need a mutex
         std::unordered_map<int, vector<WorkerGroup>> chain_id_worker_map; 
-        std::unordered_map<int, ReadyQueue> chain_id_ready_queue_map; 
         std::unordered_map<*ThreadGroup, ThreadAttributes> thread_group_attributes_map; 
 
         //TODO: need a map bw chain id and ready set after ready set is defined 
