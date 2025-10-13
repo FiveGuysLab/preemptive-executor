@@ -1,8 +1,6 @@
 #ifndef PREEMPTIVE_EXECUTOR
 #define PREEMPTIVE_EXECUTOR
 
-#include <rmw/rmw.h>
-
 #include <chrono>
 #include <memory>
 #include <fstream>
@@ -12,30 +10,32 @@
 #include <unordered_map>
 #include <set>
 #include <vector>
-
-#include "rclcpp/executor.hpp"
-#include "rclcpp/macros.hpp"
-#include "rclcpp/visibility_control.hpp"
+#include <semaphore>
+#include <climits>
 
 namespace preemptive_executor
 {
-    class WorkerGroup {
-        public:
-            //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerGroup(std::vector<pid_t> thread_ids): thread_ids(thread_ids), semaphore(std::make_shared<std::counting_semaphore>(thread_ids.size())) {}
-            ~WorkerGroup();
-            std::vector<pid_t> thread_ids;
-            std::shared_ptr<std::counting_semaphore> semaphore;
-    };
-
     struct ReadyQueue {
         std::mutex mutex;
         std::queue<rclcpp::AnyExecutable> queue;
     };
 
-    struct ThreadAttributes {
+    class WorkerGroup {
         public:
-            ThreadAttributes(int thread_id, int deadline, int period, int runtime): thread_id(thread_id), deadline(deadline), period(period), runtime(runtime) {}
+            //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
+            WorkerGroup(): thread_ids(std::vector<std::thread::id>()), semaphore(std::make_shared<std::counting_semaphore<0>>) {}
+            ~WorkerGroup();
+            std::vector<std::thread::id> thread_ids;
+            std::shared_ptr<std::counting_semaphore> semaphore;
+            preemptive_executor::ReadyQueue ready_queue;
+    };
+
+
+    struct ThreadGroupAttributes {
+        public:
+            ThreadGroupAttributes(int tg_id, int number_of_threads, int deadline, int period, int runtime):  tg_id(tg_id), number_of_threads(number_of_threads),  deadline(deadline), period(period), runtime(runtime) {}
+            int tg_id;
+            int number_of_threads;
             int deadline;
             int period;
             int runtime;           
@@ -64,19 +64,19 @@ namespace preemptive_executor
         void wait_for_work(std::chrono::nanoseconds timeout);
 
         //helper methods for preemptive executor
+        void spawn_worker_groups();
+        
+        // Helper method to get callback handle from different ROS2 callback types
+        void* get_callback_handle(const rclcpp::AnyExecutable& executable);
 
     private:
-        RCLCPP_DISABLE_COPY(PreemptiveExecutor)
+        RCLCPP_DISABLE_COPY(PreemptiveExecutor);
         
         //data structures for preemptive executor
-        std::unordered_map<int, *ThreadGroup> chain_thead_group_map; 
-        std::unordered_map<int, *ThreadGroup> callback_id_thead_group_map; 
-        std::unordered_map<int, int> callback_id_chain_map; 
-        std::unordered_map<*ThreadGroup, vector<*WorkerGroup>> thread_group_worker_map; 
-        std::unordered_map<CallbackGroup, std::mutex> callback_group_mutex_map; //for mutually exclusive cg's we need a mutex
-        std::unordered_map<int, vector<WorkerGroup>> chain_id_worker_map; 
-        std::unordered_map<int, ReadyQueue> chain_id_ready_queue_map; 
-        std::unordered_map<*ThreadGroup, ThreadAttributes> thread_group_attributes_map; 
+        std::unordered_map<int, WorkerGroup> callback_id_worker_group_map; 
+        std::unordered_map<int, std::vector<*WorkerGroup> > thread_group_id_worker_map; 
+
+        std::vector<ThreadGroupAttributes> thread_groups;
 
         //TODO: need a map bw chain id and ready set after ready set is defined 
     };
