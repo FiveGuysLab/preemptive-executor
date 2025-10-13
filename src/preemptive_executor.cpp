@@ -3,6 +3,7 @@
 #include <rcl/wait.h>
 #include <rclcpp/memory_strategies.hpp>
 #include <rclcpp/executors/executor.hpp>
+#include "../include/preemptive_executor/preemptive_executor.hpp"
 
 #include <chrono>
 #include <stdexcept>
@@ -12,6 +13,16 @@ using namespace std::chrono_literals;
 namespace preemptive_executor
 {
 
+    PreemptiveExecutor::PreemptiveExecutor()
+        : rclcpp::Executor(), wait_set_ptr_(nullptr)
+    {
+    }
+
+    rcl_wait_set_t *PreemptiveExecutor::get_wait_set_ptr() const
+    {
+        return wait_set_ptr_;
+    }
+
     void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
     {
         auto memory_strategy = memory_strategy_;
@@ -20,7 +31,7 @@ namespace preemptive_executor
             memory_strategy = rclcpp::memory_strategies::create_default_strategy();
         }
 
-        rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
+        static rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
         rcl_allocator_t allocator = memory_strategy->get_allocator();
 
         // Guard conditions: 0, Subscriptions: 2, Services: 0, Clients: 2, Events: 0, Timers: 1 (defaults)
@@ -34,128 +45,101 @@ namespace preemptive_executor
             memory_strategy->number_of_ready_events(),
             this->context_->get_rcl_context().get(),
             allocator);
+
         if (ret != RCL_RET_OK)
         {
             throw std::runtime_error("Couldn't initialize wait set");
         }
 
-        // cleanup function for the wait set
-        auto finalize_waitset = [&wait_set]()
-        {
-            if (rcl_wait_set_fini(&wait_set) != RCL_RET_OK)
-            {
-                RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Couldn't finalize wait set");
-            }
-        };
-
-        try
-        {
-            if (!memory_strategy->add_handles_to_wait_set(&wait_set))
-            {
-                finalize_waitset(); //cleanup the wait set
-                throw std::runtime_error("Couldn't fill wait set");
-            }
-
-            int64_t timeout_ns = timeout.count();
-            if (timeout_ns < 0)
-            {
-                timeout_ns = 0;
-            }
-
-            ret = rcl_wait(&wait_set, timeout_ns);
-            if (ret == RCL_RET_TIMEOUT)
-            {
-                finalize_waitset(); //cleanup the wait set
-                return;
-            }
-            else if (ret != RCL_RET_OK)
-            {
-                finalize_waitset(); //cleanup the wait set
-                throw std::runtime_error("rcl_wait() failed");
-            }
-
-            memory_strategy->remove_null_handles(&wait_set);
-
-            // After waiting, get the next ready executable using default order
-            rclcpp::AnyExecutable any_exec;
-            memory_strategy->get_next_subscription(any_exec, weak_nodes_);
-            if (!any_exec.subscription)
-            {
-                memory_strategy->get_next_service(any_exec, weak_nodes_);
-            }
-            if (!any_exec.service)
-            {
-                memory_strategy->get_next_client(any_exec, weak_nodes_);
-            }
-            if (!any_exec.client)
-            {
-                memory_strategy->get_next_timer(any_exec, weak_nodes_);
-            }
-            if (!any_exec.timer)
-            {
-                memory_strategy->get_next_waitable(any_exec, weak_nodes_);
-            }
-
-            // If we found something ready, map it to a ReadyQueue via callback->thread_group->worker_group
-            if (any_exec.subscription || any_exec.service || any_exec.client || any_exec.timer || any_exec.waitable)
-            {
-                int callback_id = 0;
-                if (any_exec.subscription)
-                {
-                    callback_id = static_cast<int>(reinterpret_cast<intptr_t>(any_exec.subscription.get()));
-                }
-                else if (any_exec.service)
-                {
-                    callback_id = static_cast<int>(reinterpret_cast<intptr_t>(any_exec.service.get()));
-                }
-                else if (any_exec.client)
-                {
-                    callback_id = static_cast<int>(reinterpret_cast<intptr_t>(any_exec.client.get()));
-                }
-                else if (any_exec.timer)
-                {
-                    callback_id = static_cast<int>(reinterpret_cast<intptr_t>(any_exec.timer.get()));
-                }
-                else if (any_exec.waitable)
-                {
-                    callback_id = static_cast<int>(reinterpret_cast<intptr_t>(any_exec.waitable.get()));
-                }
-
-                // Find the thread group for this callback id
-                auto tg_it = callback_id_thead_group_map.find(callback_id);
-                if (tg_it != callback_id_thead_group_map.end() && tg_it->second != nullptr)
-                {
-                    auto thread_group_ptr = tg_it->second; // *ThreadGroup
-
-                    // Find the worker groups associated with this thread group
-                    auto wg_it = thread_group_worker_map.find(thread_group_ptr);
-                    if (wg_it != thread_group_worker_map.end() && !wg_it->second.empty())
-                    {
-                        auto worker_group_ptr = wg_it->second.front(); // *WorkerGroup
-                        if (worker_group_ptr != nullptr)
-                        {
-                            // Enqueue into the worker group's ready queue
-                            {
-                                std::lock_guard<std::mutex> lk(worker_group_ptr->ready_queue.mutex);
-                                worker_group_ptr->ready_queue.queue.push(any_exec);
-                            }
-                        }
-                        // Wake one worker in this group if a semaphore exists
-                        if (worker_group_ptr->semaphore)
-                        {
-                            worker_group_ptr->semaphore->release();
-                        }
-                    }
-                }
-            }
-
-            finalize_waitset();
-        }
-        catch (...)
-        {
-            finalize_waitset();
-            throw;
-        }
+        // Set the wait_set pointer for external access
+        wait_set_ptr_ = &wait_set;
     }
 
 } // namespace preemptive_executor
+
+namespace preemptive_executor
+{
+    void worker_main(ThreadGroup* thread_group, WorkerGroup* worker_group){
+        //TODO: 1: set timing policy
+        //2: register with thread group
+        while (true) {
+            //3: wait on worker group semaphore
+            worker_group->semaphore->acquire();
+
+            if (!rclcpp::ok){
+                break;
+            }
+
+            //4: acquire ready queue mutex and 5: pop from ready queue
+            rclcpp::AnyExecutable next_executable;
+            bool has_executable = false;
+            {
+               worker_group->ready_queue.mutex.lock();
+                if (!worker_group->ready_queue.queue.empty()) {
+                    next_executable = worker_group->ready_queue.queue.front(); // ref or ptr
+                    worker_group->ready_queue.queue.pop();
+                    has_executable = true; // dont neeed
+                }
+            }
+
+            //6: unlock ready queue mutex 
+            worker_group->ready_queue.mutex.unlock();
+
+            //7: execute executable (placeholder; actual execution integrates with executor run loop)
+            if (has_executable) {
+                // what to do here?
+                PreemptiveExecutor::execute_any_executable(next_executable);
+            }
+        }
+    }
+    void* PreemptiveExecutor::get_callback_handle(const rclcpp::AnyExecutable& executable) {
+        //check which callback type is active 
+        if (executable.subscription) {
+            return executable.subscription->get_subscription_handle();
+        } else if (executable.timer) {
+            return executable.timer->get_timer_handle();
+        } else if (executable.service) {
+            return executable.service->get_service_handle();
+        } else if (executable.client) {
+            return executable.client->get_client_handle();
+        } else if (executable.waitable) {
+            return executable.waitable->get_handle();
+        } else {
+            return nullptr;
+        }
+    }
+
+    void PreemptiveExecutor::spawn_worker_groups(){
+        //thread groups have number of threads as an int 
+        // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
+        for(auto& thread_group : thread_groups){
+            WorkerGroup* worker_group = new WorkerGroup();
+            std::vector<pid_t> thread_ids;
+
+            for (int i = 0; i < thread_group.number_of_threads; i++){
+                //spawn number_of_threads amount of threads and populate one worker group per thread
+                std::thread([this, thread_group, worker_group]() -> void {worker_main(thread_group, worker_group);}).detach();
+                //get thread id
+                std::thread::id thread_id = std::this_thread::get_id();
+                worker_group->thread_ids.push_back(thread_id);
+            }
+            thread_group_id_worker_map[thread_group.tg_id] = worker_group;
+        }
+    }
+
+    void PreemptiveExecutor::spin() {
+        spawn_worker_groups();
+
+        //runs a while loop that calls wait for work
+        while(rclcpp::ok(this->context_)){
+            rclcpp::AnyExecutable any_executable;
+            wait_for_work(std::chrono::nanoseconds(-1));
+            
+            // Get callback handle using helper method
+            void* callback_handle = get_callback_handle(any_executable);
+            if (callback_handle && callback_id_worker_group_map.find(callback_handle) != callback_id_worker_group_map.end()) {
+                callback_id_worker_group_map[callback_handle]->semaphore->release();
+            }
+        }
+    }
+}
