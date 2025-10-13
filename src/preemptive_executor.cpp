@@ -1,8 +1,5 @@
 #include "../include/preemptive_executor/preemptive_executor.hpp"
 
-#include <../rclcpp/rclcpp/include/rcl/wait.h>
-
-
 #include <chrono>
 #include <stdexcept>
 
@@ -10,11 +7,15 @@
 namespace preemptive_executor
 {
     void worker_main(ThreadGroup* thread_group, WorkerGroup* worker_group){
-        //1: set timing policy
+        //TODO: 1: set timing policy
         //2: register with thread group
-        while (rclcpp::ok()) {
+        while (true) {
             //3: wait on worker group semaphore
             worker_group->semaphore->acquire();
+
+            if (!rclcpp::ok){
+                break;
+            }
 
             //4: acquire ready queue mutex and 5: pop from ready queue
             rclcpp::AnyExecutable next_executable;
@@ -29,11 +30,9 @@ namespace preemptive_executor
             }
 
             //6: unlock ready queue mutex 
-            //7: release worker group semaphore allowing another worker to proceed
             worker_group->ready_queue.mutex.unlock();
-            worker_group->semaphore->release();
 
-            //8: execute executable (placeholder; actual execution integrates with executor run loop)
+            //7: execute executable (placeholder; actual execution integrates with executor run loop)
             if (has_executable) {
                 // what to do here?
                 PreemptiveExecutor::execute_any_executable(next_executable);
@@ -71,7 +70,7 @@ namespace preemptive_executor
                 std::thread::id thread_id = std::this_thread::get_id();
                 worker_group->thread_ids.push_back(thread_id);
             }
-            thread_group_worker_map[thread_group] = worker_group;
+            thread_group_id_worker_map[thread_group.tg_id] = worker_group;
         }
     }
 

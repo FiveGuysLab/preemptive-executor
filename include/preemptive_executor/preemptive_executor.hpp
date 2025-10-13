@@ -13,12 +13,6 @@
 #include <semaphore>
 #include <climits>
 
-#include <../../../rclcpp/rclcpp/include/rclcpp/executor.hpp>
-#include <../../../rclcpp/rclcpp/include/rclcpp/macros.hpp>
-#include <../../../rclcpp/rclcpp/include/rclcpp/visibility_control.hpp>
-#include <../../../rclcpp/rclcpp/include/rclcpp/any_executable.hpp>
-#include <../../../rclcpp/rclcpp/include/rclcpp/callback_group.hpp>
-
 namespace preemptive_executor
 {
     struct ReadyQueue {
@@ -36,18 +30,12 @@ namespace preemptive_executor
             preemptive_executor::ReadyQueue ready_queue;
     };
 
-    struct ThreadGroup {
+
+    struct ThreadGroupAttributes {
         public:
-            ThreadGroup(int thread_id, int number_of_threads): thread_id(thread_id), number_of_threads(number_of_threads) {}
-            int thread_id;
+            ThreadGroupAttributes(int tg_id, int number_of_threads, int deadline, int period, int runtime):  tg_id(tg_id), number_of_threads(number_of_threads),  deadline(deadline), period(period), runtime(runtime) {}
+            int tg_id;
             int number_of_threads;
-            
-    };
-
-
-    struct ThreadAttributes {
-        public:
-            ThreadAttributes(int deadline, int period, int runtime):  deadline(deadline), period(period), runtime(runtime) {}
             int deadline;
             int period;
             int runtime;           
@@ -85,16 +73,10 @@ namespace preemptive_executor
         RCLCPP_DISABLE_COPY(PreemptiveExecutor);
         
         //data structures for preemptive executor
-        std::unordered_map<int, ThreadGroup> chain_thead_group_map; 
         std::unordered_map<int, WorkerGroup> callback_id_worker_group_map; 
-        std::unordered_map<int, int> callback_id_chain_map; 
-        std::unordered_map<ThreadGroup, std::vector<WorkerGroup> > thread_group_worker_map; 
-        std::unordered_map<rclcpp::CallbackGroup, std::mutex> callback_group_mutex_map; //for mutually exclusive cg's we need a mutex
-        std::unordered_map<int, std::vector<WorkerGroup> > chain_id_worker_map; 
-        std::unordered_map<int, ReadyQueue> chain_id_ready_queue_map; 
-        std::unordered_map<ThreadGroup, ThreadAttributes> thread_group_attributes_map; 
+        std::unordered_map<int, std::vector<*WorkerGroup> > thread_group_id_worker_map; 
 
-        std::vector<ThreadGroup> thread_groups;
+        std::vector<ThreadGroupAttributes> thread_groups;
 
         //TODO: need a map bw chain id and ready set after ready set is defined 
     };
