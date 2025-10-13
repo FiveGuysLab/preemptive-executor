@@ -1,6 +1,10 @@
 #ifndef PREEMPTIVE_EXECUTOR
 #define PREEMPTIVE_EXECUTOR
 
+#include <rcl/wait.h>
+#include <rclcpp/executor.hpp>
+#include <rclcpp/any_executable.hpp>
+#include <rclcpp/memory_strategies.hpp>
 #include <chrono>
 #include <memory>
 #include <fstream>
@@ -41,7 +45,6 @@ namespace preemptive_executor
             int runtime;           
     };
 
-
     class PreemptiveExecutor : public rclcpp::Executor
     {
     public:
@@ -52,6 +55,12 @@ namespace preemptive_executor
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor();
         RCLCPP_PUBLIC size_t get_number_of_threads() const;
+
+        // Getter method to access the rcl_wait_set pointer
+        RCLCPP_PUBLIC rcl_wait_set_t *get_wait_set_ptr() const;
+
+        // Memory strategy for the executor (public for direct access)
+        rclcpp::memory_strategies::MemoryStrategy::SharedPtr memory_strategy_;
 
         // // Timeout for getting next executable
         // std::chrono::nanoseconds next_exec_timeout_;
@@ -78,9 +87,12 @@ namespace preemptive_executor
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
-        //TODO: need a map bw chain id and ready set after ready set is defined 
+        // Pointer to the rcl_wait_set for external access
+        rcl_wait_set_t *wait_set_ptr_;
+
+        // TODO: need a map bw chain id and ready set after ready set is defined
     };
 
-} 
+}
 
 #endif 

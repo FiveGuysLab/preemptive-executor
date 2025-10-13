@@ -16,6 +16,8 @@ namespace preemptive_executor
     PreemptiveExecutor::PreemptiveExecutor()
         : rclcpp::Executor(), wait_set_ptr_(nullptr)
     {
+        // Use the same default memory strategy that the base Executor uses
+        memory_strategy_ = rclcpp::memory_strategies::create_default_strategy();
     }
 
     rcl_wait_set_t *PreemptiveExecutor::get_wait_set_ptr() const
@@ -25,24 +27,18 @@ namespace preemptive_executor
 
     void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
     {
-        auto memory_strategy = memory_strategy_;
-        if (!memory_strategy)
-        {
-            memory_strategy = rclcpp::memory_strategies::create_default_strategy();
-        }
-
         static rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
-        rcl_allocator_t allocator = memory_strategy->get_allocator();
+        rcl_allocator_t allocator = memory_strategy_->get_allocator();
 
         // Guard conditions: 0, Subscriptions: 2, Services: 0, Clients: 2, Events: 0, Timers: 1 (defaults)
         rcl_ret_t ret = rcl_wait_set_init(
             &wait_set,
-            memory_strategy->number_of_ready_subscriptions(),
-            memory_strategy->number_of_guard_conditions(),
-            memory_strategy->number_of_ready_timers(),
-            memory_strategy->number_of_ready_clients(),
-            memory_strategy->number_of_ready_services(),
-            memory_strategy->number_of_ready_events(),
+            memory_strategy_->number_of_ready_subscriptions(),
+            memory_strategy_->number_of_guard_conditions(),
+            memory_strategy_->number_of_ready_timers(),
+            memory_strategy_->number_of_ready_clients(),
+            memory_strategy_->number_of_ready_services(),
+            memory_strategy_->number_of_ready_events(),
             this->context_->get_rcl_context().get(),
             allocator);
 
