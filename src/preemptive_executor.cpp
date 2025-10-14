@@ -12,7 +12,7 @@
 
 namespace preemptive_executor
 {
-    void set_sched_fifo_syscall(int priority){
+    void PreemptiveExecutor::set_sched_fifo_syscall(int priority){
         sched_attr attr{};
         attr.size = sizeof(attr);
         attr.sched_policy  = SCHED_FIFO;
