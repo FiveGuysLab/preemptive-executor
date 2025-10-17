@@ -1,9 +1,7 @@
 #include "preemptive_executor/preemptive_executor.hpp"
 
-#include <rcl/wait.h>
 #include <rclcpp/memory_strategies.hpp>
 #include <rclcpp/executors/executor.hpp>
-#include "../include/preemptive_executor/preemptive_executor.hpp"
 
 #include <chrono>
 #include <stdexcept>
@@ -14,41 +12,80 @@ namespace preemptive_executor
 {
 
     PreemptiveExecutor::PreemptiveExecutor()
-        : rclcpp::Executor(), wait_set_ptr_(nullptr)
+        : rclcpp::Executor()
     {
+        // Initialize wait set
+        wait_set_ = rcl_get_zero_initialized_wait_set();
+
         // Use the same default memory strategy that the base Executor uses
         memory_strategy_ = rclcpp::memory_strategies::create_default_strategy();
+        rcl_allocator_t allocator = memory_strategy_->get_allocator();
+    }
+
+    PreemptiveExecutor::~PreemptiveExecutor()
+    {
+        // Finalize wait set
+        if (rcl_wait_set_fini(&wait_set_) != RCL_RET_OK)
+        {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Couldn't finalize wait set");
+        }
     }
 
     rcl_wait_set_t *PreemptiveExecutor::get_wait_set_ptr() const
     {
-        return wait_set_ptr_;
+        return &wait_set_;
     }
 
     void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
     {
-        static rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
-        rcl_allocator_t allocator = memory_strategy_->get_allocator();
 
-        // Guard conditions: 0, Subscriptions: 2, Services: 0, Clients: 2, Events: 0, Timers: 1 (defaults)
-        rcl_ret_t ret = rcl_wait_set_init(
-            &wait_set,
+        // Clear wait set
+        rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
+        if (ret != RCL_RET_OK)
+        {
+            throw std::runtime_error("Couldn't clear wait set");
+        }
+
+        // Resize wait set based on current entities
+        ret = rcl_wait_set_resize(
+            &wait_set_,
             memory_strategy_->number_of_ready_subscriptions(),
             memory_strategy_->number_of_guard_conditions(),
             memory_strategy_->number_of_ready_timers(),
             memory_strategy_->number_of_ready_clients(),
             memory_strategy_->number_of_ready_services(),
-            memory_strategy_->number_of_ready_events(),
-            this->context_->get_rcl_context().get(),
-            allocator);
+            memory_strategy_->number_of_ready_events());
 
         if (ret != RCL_RET_OK)
         {
-            throw std::runtime_error("Couldn't initialize wait set");
+            throw std::runtime_error("Couldn't resize wait set");
         }
 
-        // Set the wait_set pointer for external access
-        wait_set_ptr_ = &wait_set;
+        // Add handles to wait set
+        if (!memory_strategy_->add_handles_to_wait_set(&wait_set_))
+        {
+            throw std::runtime_error("Couldn't fill wait set");
+        }
+
+        // Wait for work
+        int64_t timeout_ns = timeout.count();
+        if (timeout_ns < 0)
+        {
+            timeout_ns = 0;
+        }
+
+        ret = rcl_wait(&wait_set_, timeout_ns);
+        if (ret == RCL_RET_TIMEOUT)
+        {
+            return;
+        }
+        else if (ret != RCL_RET_OK)
+        {
+            throw std::runtime_error("rcl_wait() failed");
+        }
+
+        // Remove null handles
+        memory_strategy_->remove_null_handles(&wait_set_);
     }
 
 } // namespace preemptive_executor

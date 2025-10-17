@@ -1,7 +1,6 @@
 #ifndef PREEMPTIVE_EXECUTOR
 #define PREEMPTIVE_EXECUTOR
 
-#include <rcl/wait.h>
 #include <rclcpp/executor.hpp>
 #include <rclcpp/any_executable.hpp>
 #include <rclcpp/memory_strategies.hpp>
@@ -87,8 +86,6 @@ namespace preemptive_executor
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
-        // Pointer to the rcl_wait_set for external access
-        rcl_wait_set_t *wait_set_ptr_;
 
         // TODO: need a map bw chain id and ready set after ready set is defined
     };
