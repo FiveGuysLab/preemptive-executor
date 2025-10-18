@@ -25,7 +25,7 @@ namespace preemptive_executor
         }
         attr.sched_priority= priority;
         
-        long ret syscall(SYS_sched_setattr, 0, &attr, 0);
+        long ret syscall(SYS_sched_setattr, pid, &attr, 0);
 
         if (ret != 0){
             throw std::system_error(errno, std::system_category(), "sched_setattr syscall failed");
@@ -41,6 +41,7 @@ namespace preemptive_executor
         catch (const std::exception& e) {
             std::cerr << "Failed to set priority with SCHED FIFO: " << e.what()
                   << " (continuing with normal scheduling)\n";
+            throw;
         }
         //2: register with thread group
         while (true) {
