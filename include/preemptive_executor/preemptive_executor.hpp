@@ -64,7 +64,6 @@ namespace preemptive_executor
 
         //helper methods for preemptive executor
         void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
-        void set_sched_fifo_syscall(int priority); //sets SCHED FIFO Priority using syscall
         void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
 
     private:

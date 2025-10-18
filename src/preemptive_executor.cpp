@@ -12,12 +12,18 @@
 
 namespace preemptive_executor
 {
-    void PreemptiveExecutor::set_sched_fifo_syscall(int priority){
+    void set_sched_fifo_syscall(int priority, pid_t pid){
         sched_attr attr{};
+        bool reset_on_fork = true; 
         attr.size = sizeof(attr);
-        attr.sched_policy  = SCHED_FIFO;
-        attr.sched_flags   = reset_on_fork ? SCHED_FLAG_RESET_ON_FORK : 0;
-        attr.sched_priority= std::clamp(priority, sched_get_priority_min(SCHED_FIFO), sched_get_priority_max(SCHED_FIFO));
+        attr.sched_policy = SCHED_FIFO;
+        attr.sched_flags = reset_on_fork ? SCHED_FLAG_RESET_ON_FORK : 0;
+
+        if (sched_get_priority_min(SCHED_FIFO) > priority || sched_get_priority_max(SCHED_FIFO) < priority){
+            std::string priority_error = "priority " + std::to_string(priority) + " is in invalid range. Must be from 1-99."
+            throw std::runtime_error(priority_error);
+        }
+        attr.sched_priority= priority;
         
         long ret syscall(SYS_sched_setattr, 0, &attr, 0);
 
