@@ -1,13 +1,48 @@
 #include "../include/preemptive_executor/preemptive_executor.hpp"
 
 #include <chrono>
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
+#include <iostream>
 #include <stdexcept>
 
 
 namespace preemptive_executor
 {
-    void worker_main(ThreadGroup* thread_group, WorkerGroup* worker_group){
-        //TODO: 1: set timing policy
+    void set_sched_fifo_syscall(int priority, pid_t pid){
+        sched_attr attr{};
+        bool reset_on_fork = true; 
+        attr.size = sizeof(attr);
+        attr.sched_policy = SCHED_FIFO;
+        attr.sched_flags = reset_on_fork ? SCHED_FLAG_RESET_ON_FORK : 0;
+
+        if (sched_get_priority_min(SCHED_FIFO) > priority || sched_get_priority_max(SCHED_FIFO) < priority){
+            std::string priority_error = "priority " + std::to_string(priority) + " is in invalid range. Must be from 1-99."
+            throw std::runtime_error(priority_error);
+        }
+        attr.sched_priority= priority;
+        
+        long ret syscall(SYS_sched_setattr, pid, &attr, 0);
+
+        if (ret != 0){
+            throw std::system_error(errno, std::system_category(), "sched_setattr syscall failed");
+        }
+    }
+
+    void worker_main(ThreadGroupAttributes* thread_group, WorkerGroup* worker_group){
+        //1: set timing policy
+        try {
+            //set SCHED FIFO prio using syscall
+            set_sched_fifo_syscall(thread_group->priority);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to set priority with SCHED FIFO: " << e.what()
+                  << " (continuing with normal scheduling)\n";
+            throw;
+        }
         //2: register with thread group
         while (true) {
             //3: wait on worker group semaphore
@@ -39,6 +74,7 @@ namespace preemptive_executor
             }
         }
     }
+
     void* PreemptiveExecutor::get_callback_handle(const rclcpp::AnyExecutable& executable) {
         //check which callback type is active 
         if (executable.subscription) {

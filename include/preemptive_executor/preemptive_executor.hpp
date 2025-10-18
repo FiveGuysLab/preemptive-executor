@@ -36,9 +36,8 @@ namespace preemptive_executor
             ThreadGroupAttributes(int tg_id, int number_of_threads, int deadline, int period, int runtime):  tg_id(tg_id), number_of_threads(number_of_threads),  deadline(deadline), period(period), runtime(runtime) {}
             int tg_id;
             int number_of_threads;
-            int deadline;
-            int period;
-            int runtime;           
+            int priority //int from 1-99       
+               
     };
 
 
@@ -64,10 +63,8 @@ namespace preemptive_executor
         void wait_for_work(std::chrono::nanoseconds timeout);
 
         //helper methods for preemptive executor
-        void spawn_worker_groups();
-        
-        // Helper method to get callback handle from different ROS2 callback types
-        void* get_callback_handle(const rclcpp::AnyExecutable& executable);
+        void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
+        void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
 
     private:
         RCLCPP_DISABLE_COPY(PreemptiveExecutor);
