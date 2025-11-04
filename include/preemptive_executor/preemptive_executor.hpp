@@ -16,22 +16,25 @@
 #include "rclcpp/executor.hpp"
 #include "rt_wait_result.hpp"
 #include "rt_wait_set.hpp"
+#include "bundled_executable.hpp"
+
+#define _CORE_COUNT 16 // TODO:
 
 namespace preemptive_executor
 {
-    struct ReadyQueue {
-        std::mutex mutex;
-        std::queue<rclcpp::AnyExecutable> queue;
-    };
-
     class WorkerGroup {
+        struct ReadyQueue {
+            std::mutex mutex;
+            std::queue<std::unique_ptr<BundledExecutable>> queue;
+        };
+
         public:
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerGroup(): threads(std::vector<std::thread *>()), semaphore(std::make_shared<std::counting_semaphore<INT_MAX>>()) {}
+            WorkerGroup(): threads(std::vector<std::thread *>()), semaphore(std::make_shared<std::counting_semaphore<_CORE_COUNT>>(0)) {}
             ~WorkerGroup();
             std::vector<std::thread *> threads;
-            std::shared_ptr<std::counting_semaphore<INT_MAX>> semaphore;
-            preemptive_executor::ReadyQueue ready_queue;
+            std::shared_ptr<std::counting_semaphore<_CORE_COUNT>> semaphore;
+            ReadyQueue ready_queue;
     };
 
 

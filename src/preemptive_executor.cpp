@@ -6,7 +6,7 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
-#include "preemptive_executor.hpp"
+#include "preemptive_executor/preemptive_executor.hpp"
 #include <linux/sched.h>
 
 
@@ -26,50 +26,30 @@ namespace preemptive_executor
             //3: wait on worker group semaphore
             worker_group.semaphore->acquire();
 
-            if (!rclcpp::ok){
+            if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
                 break;
             }
 
             //4: acquire ready queue mutex and 5: pop from ready queue
-            rclcpp::AnyExecutable next_executable;
-            bool has_executable = false;
+            std::unique_ptr<BundledExecutable> exec = nullptr;
             {
-               worker_group.ready_queue.mutex.lock();
-                if (!worker_group.ready_queue.queue.empty()) {
-                    next_executable = worker_group.ready_queue.queue.front(); // ref or ptr
-                    worker_group.ready_queue.queue.pop();
-                    has_executable = true; // dont neeed
+                auto& rq = worker_group.ready_queue;
+                std::lock_guard<std::mutex> guard(rq.mutex);
+
+                if (rq.queue.empty() || rq.queue.front() == nullptr) {
+                    throw std::runtime_error("Ready Q state invalid");
                 }
+
+                std::swap(exec, rq.queue.front());
+                rq.queue.pop();
             }
 
-            //6: unlock ready queue mutex 
-            worker_group.ready_queue.mutex.unlock();
+            // TODO: check exec spinning with a lambda
 
             //7: execute executable (placeholder; actual execution integrates with executor run loop)
-            if (has_executable) {
-                // TODO: This is a non-static class member. I think our executor should pass the workers a lamba to call this
-                PreemptiveExecutor::execute_any_executable(next_executable);
-            }
+            exec->run();
         }
     }
-
-    // NOTE: Can't use this. No way to make these types work. Needs more thought.
-    // void* PreemptiveExecutor::get_callback_handle(const rclcpp::AnyExecutable& executable) {
-    //     //check which callback type is active 
-    //     if (executable.subscription) {
-    //         return executable.subscription->get_subscription_handle();
-    //     } else if (executable.timer) {
-    //         return executable.timer->get_timer_handle();
-    //     } else if (executable.service) {
-    //         return executable.service->get_service_handle();
-    //     } else if (executable.client) {
-    //         return executable.client->get_client_handle();
-    //     } else if (executable.waitable) {
-    //         return executable.waitable->get_handle();
-    //     } else {
-    //         return nullptr;
-    //     }
-    // }
 
     void PreemptiveExecutor::spawn_worker_groups(){
         // thread groups have number of threads as an int 
