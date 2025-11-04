@@ -17,6 +17,7 @@
 #include "rt_wait_result.hpp"
 #include "rt_wait_set.hpp"
 #include "bundled_executable.hpp"
+#include "bundled_subscription.hpp"
 
 #define _CORE_COUNT 16 // TODO:
 
@@ -70,6 +71,7 @@ namespace preemptive_executor
         //helper methods for preemptive executor
         void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
         void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
+        void rt_wait_return(); //process wait result and enqueue bundled executables to worker groups
 
         // Replacing the wait set wrappers that we'll be using
         preemptive_executor::RTWaitSet wait_set_ RCPPUTILS_TSA_GUARDED_BY(mutex_);

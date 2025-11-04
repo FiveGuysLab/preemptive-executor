@@ -7,6 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "preemptive_executor/preemptive_executor.hpp"
+#include "preemptive_executor/bundled_timer.hpp"
 #include <linux/sched.h>
 
 
@@ -116,6 +117,62 @@ namespace preemptive_executor
     }
     }
 
+    void PreemptiveExecutor::rt_wait_return() {
+        // Check if wait_result_ exists and is Ready
+        if (!wait_result_ || wait_result_->kind() != rclcpp::WaitResultKind::Ready) {
+            return;
+        }
+
+        auto & wait_set = wait_result_->get_wait_set();
+        auto & rcl_wait_set = wait_set.get_rcl_wait_set();
+
+        //using first available worker group for now to enqueue
+        if (thread_group_id_worker_map.empty()) {
+            return;
+        }
+        auto & worker_group = thread_group_id_worker_map.begin()->second;
+
+        //subscriptions
+        for (size_t ii = 0; ii < wait_set.size_of_subscriptions(); ++ii) {
+            if (rcl_wait_set.subscriptions[ii] != nullptr) {
+                auto subscription = wait_set.subscriptions(ii);
+                if (subscription) {
+                    auto bundle = preemptive_executor::take_and_bundle(subscription);
+                    if (bundle) {
+                        //enqueue
+                        {
+                            std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
+                            worker_group.ready_queue.queue.push(std::move(bundle));
+                        }
+                        worker_group.semaphore->release();
+                    }
+                }
+            }
+        }
+
+        //timers
+        for (size_t i = 0; i < wait_set.size_of_timers(); ++i) {
+            if (rcl_wait_set.timers[i] != nullptr) {
+                auto timer = wait_set.timers(i);
+                if (timer) {
+                    //TODO: Determine proper data_ptr for timer callback
+                    std::shared_ptr<void> data_ptr = nullptr;
+                    auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer, data_ptr);
+                    if (bundle) {
+                        //enqueue
+                        {
+                            std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
+                            worker_group.ready_queue.queue.push(std::move(bundle));
+                        }
+                        worker_group.semaphore->release();
+                    }
+                }
+            }
+        }
+
+        //TODO: services, clients, and waitables after we figure out what to do with them 
+    }
+
     void PreemptiveExecutor::spin() {
         spawn_worker_groups();
 
@@ -126,7 +183,8 @@ namespace preemptive_executor
             rclcpp::AnyExecutable any_executable;
             wait_for_work(std::chrono::nanoseconds(-1));
 
-            // TODO: Post-processing the waitresult
+            //process wait result and enqueue bundled executables
+            rt_wait_return();
         }
     }
 }
