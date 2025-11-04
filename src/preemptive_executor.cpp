@@ -74,6 +74,44 @@ namespace preemptive_executor
         }
     }
 
+    bool PreemptiveExecutor::populate_ready_queues(rcl_wait_set_t *wait_set) { 
+        std::unordered_map<WorkerGroup*, std::vector<rclcpp::AnyExecutable>> executables = get_executables(wait_set);
+        //iterate through each worker group and populate map from callback id to worker group
+        for (auto& worker_group : callback_id_worker_group_map) {
+            worker_group->ready_queue.mutex.lock();
+            for (auto& executable : executables[worker_group]) {
+                //check if executable has already been visited
+                if (worker_group->ready_queue.visted_executables_map.find(executable) == worker_group->ready_queue.visted_executables_map.end())
+                {
+                    worker_group->ready_queue.queue.push(executable);
+                    worker_group->ready_queue.visted_executables_map[executable] = 1;
+                } 
+            }
+            worker_group->ready_queue.mutex.unlock();
+        }
+        
+        return true;
+    }
+
+    std::unordered_map<WorkerGroup*, std::vector<rclcpp::AnyExecutable>> PreemptiveExecutor::get_executables(rcl_wait_set_t * wait_set) {
+        std::unordered_map<WorkerGroup*, std::vector<rclcpp::AnyExecutable>> out;
+        if (!wait_set) return out;
+
+        // 1) Subscriptions -- implement for other executable types later
+        for (size_t i = 0; i < wait_set->size_of_subscriptions; ++i) {
+            const rcl_subscription_t * sub = wait_set->subscriptions[i];
+            if (!sub) continue; // not ready
+            auto it = handle_to_subscription_.find(sub);
+            if (it == handle_to_subscription_.end()) continue; // unknown to this executor
+            rclcpp::AnyExecutable exec;
+            exec.subscription = it->second;
+            out[callback_id_worker_group_map[exec.subscription->get_subscription_handle()]].push_back(exec);
+        }
+
+        return out;
+    }
+
+
     void PreemptiveExecutor::spin() {
         spawn_worker_groups();
 

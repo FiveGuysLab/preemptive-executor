@@ -18,6 +18,7 @@ namespace preemptive_executor
     struct ReadyQueue {
         std::mutex mutex;
         std::queue<rclcpp::AnyExecutable> queue;
+        std::unordered_map<rclcpp::AnyExecutable, int> visted_executables_map;
     };
 
     class WorkerGroup {
@@ -25,9 +26,14 @@ namespace preemptive_executor
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
             WorkerGroup(): thread_ids(std::vector<std::thread::id>()), semaphore(std::make_shared<std::counting_semaphore<0>>) {}
             ~WorkerGroup();
+            int worker_id; // same as tgid
             std::vector<std::thread::id> thread_ids;
             std::shared_ptr<std::counting_semaphore> semaphore;
             preemptive_executor::ReadyQueue ready_queue;
+
+            bool operator==(const WorkerGroup& other) const {
+                return this->worker_id == other.worker_id;
+            }
     };
 
 
@@ -65,8 +71,11 @@ namespace preemptive_executor
 
         //helper methods for preemptive executor
         void spawn_worker_groups();
+        bool populate_ready_queues(rcl_wait_set_t *wait_set);
+        std::unordered_map<WorkerGroup*, std::vector<rclcpp::AnyExecutable>> get_executables(rcl_wait_set_t * wait_set);
         
-        // Helper method to get callback handle from different ROS2 callback types
+        // Helper method to ge
+        // t callback handle from different ROS2 callback types
         void* get_callback_handle(const rclcpp::AnyExecutable& executable);
 
     private:
@@ -74,7 +83,7 @@ namespace preemptive_executor
         
         //data structures for preemptive executor
         std::unordered_map<int, WorkerGroup> callback_id_worker_group_map; 
-        std::unordered_map<int, std::vector<*WorkerGroup> > thread_group_id_worker_map; 
+        std::unordered_map<int, *WorkerGroup> thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
