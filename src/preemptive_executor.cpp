@@ -118,7 +118,7 @@ namespace preemptive_executor
     }
 
     void PreemptiveExecutor::rt_wait_return() {
-        // Check if wait_result_ exists and is Ready
+        //check if wait_result_ exists and is Ready
         if (!wait_result_ || wait_result_->kind() != rclcpp::WaitResultKind::Ready) {
             return;
         }
@@ -126,7 +126,7 @@ namespace preemptive_executor
         auto & wait_set = wait_result_->get_wait_set();
         auto & rcl_wait_set = wait_set.get_rcl_wait_set();
 
-        //using first available worker group for now to enqueue
+        //using first available worker group for now to enqueue (maybe use chain ids later?)
         if (thread_group_id_worker_map.empty()) {
             return;
         }
