@@ -7,7 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "preemptive_executor/preemptive_executor.hpp"
-#include "preemptive_executor/bundled_timer.hpp"
+#include "preemptive_executor/bundled_subscription.hpp"
 #include <linux/sched.h>
 
 
@@ -132,6 +132,12 @@ namespace preemptive_executor
         }
         auto & worker_group = thread_group_id_worker_map.begin()->second;
 
+        //collect all bundles for this worker group, then enqueue in one release
+        std::vector<std::unique_ptr<BundledExecutable>> pending_bundles;
+        pending_bundles.reserve(
+            wait_set.size_of_subscriptions() + wait_set.size_of_timers()
+        );
+
         //subscriptions
         for (size_t i = 0; i < wait_set.size_of_subscriptions(); ++i) {
             if (rcl_wait_set.subscriptions[i] != nullptr) {
@@ -139,12 +145,7 @@ namespace preemptive_executor
                 if (subscription) {
                     auto bundle = preemptive_executor::take_and_bundle(subscription);
                     if (bundle) {
-                        //enqueue
-                        {
-                            std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
-                            worker_group.ready_queue.queue.push(std::move(bundle));
-                        }
-                        worker_group.semaphore->release();
+                        pending_bundles.push_back(std::move(bundle));
                     }
                 }
             }
@@ -155,19 +156,22 @@ namespace preemptive_executor
             if (rcl_wait_set.timers[i] != nullptr) {
                 auto timer = wait_set.timers(i);
                 if (timer) {
-                    //TODO: Determine proper data_ptr for timer callback
-                    std::shared_ptr<void> data_ptr = nullptr;
-                    auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer, data_ptr);
+                    auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer);
                     if (bundle) {
-                        //enqueue
-                        {
-                            std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
-                            worker_group.ready_queue.queue.push(std::move(bundle));
-                        }
-                        worker_group.semaphore->release();
+                        pending_bundles.push_back(std::move(bundle));
                     }
                 }
             }
+        }
+
+        if (!pending_bundles.empty()) {
+            {
+                std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
+                for (auto & bundle : pending_bundles) {
+                    worker_group.ready_queue.queue.push(std::move(bundle));
+                }
+            }
+            worker_group.semaphore->release(static_cast<ptrdiff_t>(pending_bundles.size()));
         }
 
         //TODO: services, clients, and waitables after we figure out what to do with them 
