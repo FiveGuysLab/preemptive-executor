@@ -5,7 +5,7 @@ namespace preemptive_executor
 {
     BundledTimer::BundledTimer(rclcpp::TimerBase::SharedPtr timer_, std::shared_ptr<void> data_ptr_) : timer(timer_), data_ptr(data_ptr_) {}
 
-    std::unique_ptr<BundledExecutable> take_and_bundle(rclcpp::TimerBase::SharedPtr timer)
+    std::unique_ptr<BundledExecutable> BundledTimer::take_and_bundle(rclcpp::TimerBase::SharedPtr timer)
     {
         std::shared_ptr<void> data_ptr = timer->call();
 
