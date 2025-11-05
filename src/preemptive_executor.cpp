@@ -133,9 +133,9 @@ namespace preemptive_executor
         auto & worker_group = thread_group_id_worker_map.begin()->second;
 
         //subscriptions
-        for (size_t ii = 0; ii < wait_set.size_of_subscriptions(); ++ii) {
-            if (rcl_wait_set.subscriptions[ii] != nullptr) {
-                auto subscription = wait_set.subscriptions(ii);
+        for (size_t i = 0; i < wait_set.size_of_subscriptions(); ++i) {
+            if (rcl_wait_set.subscriptions[i] != nullptr) {
+                auto subscription = wait_set.subscriptions(i);
                 if (subscription) {
                     auto bundle = preemptive_executor::take_and_bundle(subscription);
                     if (bundle) {
