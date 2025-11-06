@@ -123,20 +123,29 @@ namespace preemptive_executor
             return;
         }
 
-        auto & wait_set = wait_result_->get_wait_set();
-        auto & rcl_wait_set = wait_set.get_rcl_wait_set();
-
-        //using first available worker group for now to enqueue (maybe use chain ids later?)
         if (thread_group_id_worker_map.empty()) {
             return;
         }
-        auto & worker_group = thread_group_id_worker_map.begin()->second;
 
-        //collect all bundles for this worker group, then enqueue in one release
-        std::vector<std::unique_ptr<BundledExecutable>> pending_bundles;
-        pending_bundles.reserve(
-            wait_set.size_of_subscriptions() + wait_set.size_of_timers()
-        );
+        auto & wait_set = wait_result_->get_wait_set();
+        auto & rcl_wait_set = wait_set.get_rcl_wait_set();
+
+        //helper function to resolve thread group ID for a bundle
+        //TODO: Implement proper bundle -> tgid resolution (e.g., via chain IDs @rohit)
+        auto resolve_tgid = [this](const std::shared_ptr<rclcpp::SubscriptionBase>& subscription) -> int {
+            //TODO: Resolve tgid from subscription metadata (e.g., callback group, chain ID, etc.)
+            //using first available worker group as fallback
+            return thread_group_id_worker_map.begin()->first;
+        };
+
+        auto resolve_tgid_timer = [this](const std::shared_ptr<rclcpp::TimerBase>& timer) -> int {
+            //TODO: Resolve tgid from timer metadata (e.g., callback group, chain ID, etc.)
+            //using first available worker group as fallback
+            return thread_group_id_worker_map.begin()->first;
+        };
+
+        //collect bundles grouped by thread group ID (keeping this here as we don't need it globally in executor)
+        std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
 
         //subscriptions
         for (size_t i = 0; i < wait_set.size_of_subscriptions(); ++i) {
@@ -145,7 +154,9 @@ namespace preemptive_executor
                 if (subscription) {
                     auto bundle = preemptive_executor::take_and_bundle(subscription);
                     if (bundle) {
-                        pending_bundles.push_back(std::move(bundle));
+                        // Resolve thread group ID for this bundle
+                        int tgid = resolve_tgid(subscription);
+                        bundles_by_tgid[tgid].push_back(std::move(bundle));
                     }
                 }
             }
@@ -158,20 +169,34 @@ namespace preemptive_executor
                 if (timer) {
                     auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer);
                     if (bundle) {
-                        pending_bundles.push_back(std::move(bundle));
+                        //resolve thread group ID for this bundle
+                        int tgid = resolve_tgid_timer(timer);
+                        bundles_by_tgid[tgid].push_back(std::move(bundle));
                     }
                 }
             }
         }
 
-        if (!pending_bundles.empty()) {
+        //enqueue all bundles for each worker group with a single mutex acquisition per group
+        for (auto & [tgid, bundles] : bundles_by_tgid) {
+            if (bundles.empty()) {
+                continue;
+            }
+
+            auto it = thread_group_id_worker_map.find(tgid);
+            if (it == thread_group_id_worker_map.end()) {
+                //skip if worker group doesn't exist for this tgid
+                continue;
+            }
+
+            auto & worker_group = it->second;
             {
                 std::lock_guard<std::mutex> guard(worker_group.ready_queue.mutex);
-                for (auto & bundle : pending_bundles) {
+                for (auto & bundle : bundles) {
                     worker_group.ready_queue.queue.push(std::move(bundle));
                 }
             }
-            worker_group.semaphore->release(static_cast<ptrdiff_t>(pending_bundles.size()));
+            worker_group.semaphore->release(static_cast<ptrdiff_t>(bundles.size()));
         }
 
         //TODO: services, clients, and waitables after we figure out what to do with them 
