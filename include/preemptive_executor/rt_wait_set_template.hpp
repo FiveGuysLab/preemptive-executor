@@ -695,14 +695,14 @@ public:
         return this->storage_get_rcl_wait_set();
       },
       // this method provides a way to create the RTWaitResult
-      [this](WaitResultKind wait_result_kind) -> RTWaitResult<RTWaitSetTemplate> {
+      [this](rclcpp::WaitResultKind wait_result_kind) -> RTWaitResult<RTWaitSetTemplate> {
         // convert the result into a RTWaitResult
         switch (wait_result_kind) {
-          case WaitResultKind::Ready:
+          case rclcpp::WaitResultKind::Ready:
             return RTWaitResult<RTWaitSetTemplate>::from_ready_wait_result_kind(*this);
-          case WaitResultKind::Timeout:
+          case rclcpp::WaitResultKind::Timeout:
             return RTWaitResult<RTWaitSetTemplate>::from_timeout_wait_result_kind();
-          case WaitResultKind::Empty:
+          case rclcpp::WaitResultKind::Empty:
             return RTWaitResult<RTWaitSetTemplate>::from_empty_wait_result_kind();
           default:
             auto msg = "unknown WaitResultKind with value: " + std::to_string(wait_result_kind);

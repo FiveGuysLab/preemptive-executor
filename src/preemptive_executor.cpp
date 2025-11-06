@@ -17,14 +17,14 @@ namespace preemptive_executor
         pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
     }
 
-    void worker_main(WorkerGroup& worker_group){
+    void worker_main(std::shared_ptr<WorkerGroup> worker_group){
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
 
         while (true) {
             //3: wait on worker group semaphore
-            worker_group.semaphore->acquire();
+            worker_group->semaphore->acquire();
 
             if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
                 break;
@@ -33,7 +33,7 @@ namespace preemptive_executor
             //4: acquire ready queue mutex and 5: pop from ready queue
             std::unique_ptr<BundledExecutable> exec = nullptr;
             {
-                auto& rq = worker_group.ready_queue;
+                auto& rq = worker_group->ready_queue;
                 std::lock_guard<std::mutex> guard(rq.mutex);
 
                 if (rq.queue.empty() || rq.queue.front() == nullptr) {
@@ -51,19 +51,19 @@ namespace preemptive_executor
         }
     }
 
-    void PreemptiveExecutor::spawn_worker_groups(){
+    void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& thread_group : thread_groups){
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::move(WorkerGroup()));
-            auto& worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
+            auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
 
             for (int i = 0; i < thread_group.number_of_threads; i++){
                 //spawn number_of_threads amount of threads and populate one worker group per thread
-                auto t = new std::thread([&worker_group]() -> void {worker_main(worker_group);}); // pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
-                worker_group.threads.push_back(t);
+                auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
                 set_fifo_prio(thread_group.priority, *t);
                 t->detach();
+                worker_group->threads.push_back(std::move(t));
             }
         }
     }
