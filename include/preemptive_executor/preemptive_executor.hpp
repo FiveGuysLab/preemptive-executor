@@ -23,16 +23,17 @@
 namespace preemptive_executor
 {
     class WorkerGroup {
-        struct ReadyQueue {
-            std::mutex mutex;
-            std::queue<std::unique_ptr<BundledExecutable>> queue;
+        class ReadyQueue {
+            public:
+                std::mutex mutex;
+                std::queue<std::unique_ptr<BundledExecutable>> queue;
         };
 
         public:
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerGroup(): threads(std::vector<std::thread *>()), semaphore(std::make_shared<std::counting_semaphore<_CORE_COUNT>>(0)) {}
-            ~WorkerGroup();
-            std::vector<std::thread *> threads;
+            WorkerGroup(): semaphore(std::make_unique<std::counting_semaphore<_CORE_COUNT>>(0)) {}
+            ~WorkerGroup(); // TODO:
+            std::vector<std::unique_ptr<std::thread>> threads;
             std::shared_ptr<std::counting_semaphore<_CORE_COUNT>> semaphore;
             ReadyQueue ready_queue;
     };
@@ -52,10 +53,9 @@ namespace preemptive_executor
         RCLCPP_SMART_PTR_DEFINITIONS(PreemptiveExecutor)
 
         //constructor for PreemptiveExecutor
-        RCLCPP_PUBLIC explicit PreemptiveExecutor(); //leaving ctor params blank for now
+        RCLCPP_PUBLIC explicit PreemptiveExecutor(); //leaving ctor params blank for now TODO:
 
-        RCLCPP_PUBLIC virtual ~PreemptiveExecutor();
-        RCLCPP_PUBLIC size_t get_number_of_threads() const; // Why?
+        RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
 
         // // Timeout for getting next executable
@@ -76,14 +76,14 @@ namespace preemptive_executor
         std::optional<preemptive_executor::RTWaitResult<preemptive_executor::RTWaitSet>> wait_result_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
 
     private:
-        RCLCPP_DISABLE_COPY(PreemptiveExecutor);
+        RCLCPP_DISABLE_COPY(PreemptiveExecutor)
         
         //data structures for preemptive executor
-        std::unordered_map<int, WorkerGroup>thread_group_id_worker_map; 
+        std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
-        //TODO: need a map bw chain id and ready set after ready set is defined 
+        //TODO: need a map bw chain id and ready set after ready set is defined     
     };
 
 } 

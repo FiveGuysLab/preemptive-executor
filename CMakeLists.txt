@@ -30,25 +30,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   Threads::Threads
 )
 
-add_executable(usage_example src/usage_example.cpp)
-target_include_directories(usage_example PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
-target_link_libraries(usage_example
-  ${PROJECT_NAME}
-  ${std_msgs_TARGETS}
-  ${std_srvs_TARGETS}
-  rclcpp::rclcpp
-  Threads::Threads
-)
-
 install(
   DIRECTORY include/
   DESTINATION include/${PROJECT_NAME}
-)
-
-install(TARGETS usage_example
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
