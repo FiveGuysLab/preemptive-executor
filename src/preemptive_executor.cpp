@@ -83,15 +83,19 @@ namespace preemptive_executor
         // NOTE: do not remove based on cb groups (this is a major deviation from the default)
         //          We won't resize the waitset- since we disallow updating the entity set, recollecting is not required
 
-        // clear wait set
-        rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
-        if (ret != RCL_RET_OK) {
-        throw_from_rcl_error(ret, "Couldn't clear wait set");
-        }
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
 
-        // add handles to wait on
-        if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
-        throw std::runtime_error("Couldn't fill wait set");
+            // clear wait set
+            rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
+            if (ret != RCL_RET_OK) {
+                throw_from_rcl_error(ret, "Couldn't clear wait set");
+            }
+
+            // add handles to wait on
+            if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
+                throw std::runtime_error("Couldn't fill wait set");
+            }
         }
         
         rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
