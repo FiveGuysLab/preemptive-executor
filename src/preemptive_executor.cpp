@@ -1,6 +1,5 @@
 #include <chrono>
 #include <sched.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
@@ -51,6 +50,14 @@ namespace preemptive_executor
         }
     }
 
+    PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
+    :   Executor(options), rt_memory_strategy_(rt_memory_strategy)
+    {
+        if (memory_strategy_ != rt_memory_strategy_) {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
+        }
+    }
+
     void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
@@ -70,60 +77,43 @@ namespace preemptive_executor
 
     void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
     {
-    TRACETOOLS_TRACEPOINT(rclcpp_executor_wait_for_work, timeout.count());
+        using rclcpp::exceptions::throw_from_rcl_error;
+        TRACEPOINT(rclcpp_executor_wait_for_work, timeout.count());
 
-    // Clear any previous wait result
-    this->wait_result_.reset();
+        // NOTE: do not remove based on cb groups (this is a major deviation from the default)
+        //          We won't resize the waitset- since we disallow updating the entity set, recollecting is not required
 
-    // we need to make sure that callback groups don't get out of scope
-    // during the wait. As in jazzy, they are not covered by the DynamicStorage,
-    // we explicitly hold them here as a bugfix
-    std::vector<rclcpp::CallbackGroup::SharedPtr> cbgs;
-
-    {
-        std::lock_guard<std::mutex> guard(mutex_);
-
-        if (this->entities_need_rebuild_.exchange(false) || current_collection_.empty()) {
-        this->collect_entities();
+        // clear wait set
+        rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
+        if (ret != RCL_RET_OK) {
+        throw_from_rcl_error(ret, "Couldn't clear wait set");
         }
 
-        auto callback_groups = this->collector_.get_all_callback_groups();
-        cbgs.resize(callback_groups.size());
-        for(const auto & w_ptr : callback_groups) {
-        auto shr_ptr = w_ptr.lock();
-        if(shr_ptr) {
-            cbgs.push_back(std::move(shr_ptr));
+        // add handles to wait on
+        if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
+        throw std::runtime_error("Couldn't fill wait set");
         }
-        }
-    }
+        
+        rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
 
-    this->wait_result_.emplace(wait_set_.wait(timeout));
-
-    // drop references to the callback groups, before trying to execute anything
-    cbgs.clear();
-
-    if (!this->wait_result_ || this->wait_result_->kind() == rclcpp::WaitResultKind::Empty) {
-        RCUTILS_LOG_WARN_NAMED(
-        "rclcpp",
-        "empty wait set received in wait(). This should never happen.");
-    } else {
-        if (this->wait_result_->kind() == rclcpp::WaitResultKind::Ready && current_notify_waitable_) {
-        auto & rcl_wait_set = this->wait_result_->get_wait_set().get_rcl_wait_set();
-        if (current_notify_waitable_->is_ready(rcl_wait_set)) {
-            current_notify_waitable_->execute(current_notify_waitable_->take_data());
+        if (status == RCL_RET_WAIT_SET_EMPTY) {
+            RCUTILS_LOG_WARN_NAMED(
+                "rclcpp",
+                "empty wait set received in rcl_wait(). This should never happen.");
+        } else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
+            throw_from_rcl_error(status, "rcl_wait() failed");
         }
-        }
-    }
     }
 
     void PreemptiveExecutor::spin() {
+        // TODO: Init wait set, collect entities
+
         spawn_worker_groups();
 
         //runs a while loop that calls wait for work
         while(rclcpp::ok(context_) && spinning.load()) {
             // TODO: Add a check for entity recollection. We don't support it, so throw if that state changes.
 
-            rclcpp::AnyExecutable any_executable;
             wait_for_work(std::chrono::nanoseconds(-1));
 
             // TODO: Post-processing the waitresult
