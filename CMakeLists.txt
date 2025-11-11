@@ -8,6 +8,9 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Enable compile commands export for LSP support
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic -Wnon-virtual-dtor -Woverloaded-virtual)
 endif()
