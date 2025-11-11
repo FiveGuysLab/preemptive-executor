@@ -14,9 +14,8 @@
 #include <climits>
 
 #include "rclcpp/executor.hpp"
-#include "rt_wait_result.hpp"
-#include "rt_wait_set.hpp"
 #include "bundled_executable.hpp"
+#include "rt_allocator_memory_strategy.hpp"
 
 #define _CORE_COUNT 16 // TODO:
 
@@ -53,7 +52,7 @@ namespace preemptive_executor
         RCLCPP_SMART_PTR_DEFINITIONS(PreemptiveExecutor)
 
         //constructor for PreemptiveExecutor
-        RCLCPP_PUBLIC explicit PreemptiveExecutor(); //leaving ctor params blank for now TODO:
+        RCLCPP_PUBLIC explicit PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy);
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
@@ -72,8 +71,8 @@ namespace preemptive_executor
         void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
 
         // Replacing the wait set wrappers that we'll be using
-        preemptive_executor::RTWaitSet wait_set_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
-        std::optional<preemptive_executor::RTWaitResult<preemptive_executor::RTWaitSet>> wait_result_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
+        memory_strategy::RTMemoryStrategy::SharedPtr
+        rt_memory_strategy_ RCPPUTILS_TSA_PT_GUARDED_BY(mutex_);
 
     private:
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)

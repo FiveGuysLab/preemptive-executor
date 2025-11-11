@@ -2,7 +2,6 @@
 #define PREEMPTIVE_EXECUTOR__BUNDLED_SUB
 
 #include "bundled_executable.hpp"
-#include <shared_ptr.hpp>
 #include "rclcpp/subscription_base.hpp"
 
 namespace preemptive_executor
@@ -12,38 +11,41 @@ namespace preemptive_executor
 	protected:
 		rclcpp::SubscriptionBase::SharedPtr subscription;
 		rclcpp::MessageInfo message_info;
+		BundledSubscription(rclcpp::SubscriptionBase::SharedPtr subscription);
 
 	public:
-		BundledSubscription(rclcpp::SubscriptionBase::SharedPtr subscription);
 		virtual void run() = 0;
 	};
 
 	class LoanedMsgSubscription : public BundledSubscription
 	{
+	protected:
 		void *loaned_msg;
-		LoanedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription);
-
+		
 	public:
+		LoanedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription, Priv& _);
 		static std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription);
 		void run() override;
 	};
 
 	class GenericMsgSubscription : public BundledSubscription
 	{
+	protected:
 		std::shared_ptr<void> message;
-		GenericMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription);
-
+		
 	public:
+		GenericMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription, Priv& _);
 		static std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription);
 		void run() override;
 	};
 
 	class SerializedMsgSubscription : public BundledSubscription
 	{
+	protected:
 		std::shared_ptr<rclcpp::SerializedMessage> serialized_msg;
-		SerializedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription);
 
 	public:
+		SerializedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription, Priv& _);
 		static std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription);
 		void run() override;
 	};

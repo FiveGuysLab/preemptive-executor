@@ -5,6 +5,8 @@ namespace preemptive_executor
 {
     class BundledExecutable
     {
+    protected:
+        struct Priv {};
     public:
         virtual void run() = 0;
         virtual ~BundledExecutable() {};

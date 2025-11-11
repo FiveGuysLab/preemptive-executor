@@ -20,7 +20,13 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(Threads REQUIRED)
 
-add_library(${PROJECT_NAME} src/preemptive_executor.cpp)
+set(${PROJECT_NAME}_SRCS
+  src/preemptive_executor.cpp
+  src/bundled_timer.cpp
+  src/bundled_subscription.cpp
+)
+
+add_library(${PROJECT_NAME} ${${PROJECT_NAME}_SRCS})
 target_include_directories(${PROJECT_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")

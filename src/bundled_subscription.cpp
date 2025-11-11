@@ -10,7 +10,7 @@ try_take(
 {
     try
     {
-        taken = take_action();
+        take_action();
     }
     catch (const rclcpp::exceptions::RCLError &rcl_error)
     {
@@ -30,11 +30,12 @@ namespace preemptive_executor
         message_info.get_rmw_message_info().from_intra_process = false;
     }
 
-    LoanedMsgSubscription::LoanedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_) : BundledSubscription(subscription_) {}
+    LoanedMsgSubscription::LoanedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_, Priv&) : BundledSubscription(subscription_) {}
 
     std::unique_ptr<BundledSubscription> LoanedMsgSubscription::take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        auto bundle = std::make_unique<LoanedMsgSubscription>(subscription);
+        Priv _p;
+        auto bundle = std::make_unique<LoanedMsgSubscription>(subscription, _p);
         try_take(
             "taking a loaned message from topic",
             bundle->subscription->get_topic_name(),
@@ -73,7 +74,7 @@ namespace preemptive_executor
                 "executor %s '%s' unexpectedly failed: %s",
                 "LoanedMsgSubscription run called twice",
                 subscription->get_topic_name(),
-                std::runtime_error("LoanedMsgSubscription run called twice"));
+                "LoanedMsgSubscription run called twice");
         }
 
         subscription->handle_loaned_message(loaned_msg, message_info);
@@ -91,11 +92,12 @@ namespace preemptive_executor
         loaned_msg = nullptr;
     }
 
-    GenericMsgSubscription::GenericMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_) : BundledSubscription(subscription_), message(subscription_->create_message()) {}
+    GenericMsgSubscription::GenericMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_, Priv&) : BundledSubscription(subscription_), message(subscription_->create_message()) {}
 
     std::unique_ptr<BundledSubscription> GenericMsgSubscription::take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        auto bundle = std::make_unique<GenericMsgSubscription>(subscription);
+        Priv _p;
+        auto bundle = std::make_unique<GenericMsgSubscription>(subscription, _p);
         try_take(
             "taking a message from topic",
             subscription->get_topic_name(),
@@ -119,7 +121,7 @@ namespace preemptive_executor
                 "executor %s '%s' unexpectedly failed: %s",
                 "GenericMsgSubscription run called twice",
                 subscription->get_topic_name(),
-                std::runtime_error("GenericMsgSubscription run called twice"));
+                "GenericMsgSubscription run called twice");
         }
 
         subscription->handle_message(message, message_info);
@@ -127,11 +129,12 @@ namespace preemptive_executor
         subscription->return_message(message);
     }
 
-    SerializedMsgSubscription::SerializedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_) : BundledSubscription(subscription_), serialized_msg(subscription_->create_serialized_message()) {}
+    SerializedMsgSubscription::SerializedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_, Priv&) : BundledSubscription(subscription_), serialized_msg(subscription_->create_serialized_message()) {}
 
     std::unique_ptr<BundledSubscription> SerializedMsgSubscription::take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        auto bundle = std::make_unique<SerializedMsgSubscription>(subscription);
+        Priv _p;
+        auto bundle = std::make_unique<SerializedMsgSubscription>(subscription, _p);
         try_take(
             "taking a serialized message from topic",
             subscription->get_topic_name(),
@@ -155,7 +158,7 @@ namespace preemptive_executor
                 "executor %s '%s' unexpectedly failed: %s",
                 "SerializedMsgSubscription run called twice",
                 subscription->get_topic_name(),
-                std::runtime_error("SerializedMsgSubscription run called twice"));
+                "SerializedMsgSubscription run called twice");
         }
 
         subscription->handle_serialized_message(serialized_msg, message_info);
@@ -165,10 +168,7 @@ namespace preemptive_executor
 
     std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        switch (subscription->get_delivered_message_kind())
-        {
-        // Deliver ROS message
-        case rclcpp::DeliveredMessageKind::ROS_MESSAGE:
+        if (subscription->is_serialized())
         {
             if (subscription->can_loan_messages())
             {
@@ -179,11 +179,9 @@ namespace preemptive_executor
                 return GenericMsgSubscription::take_and_bundle(subscription);
             }
         }
-        // Deliver serialized message
-        case rclcpp::DeliveredMessageKind::SERIALIZED_MESSAGE:
+        else
         {
             return SerializedMsgSubscription::take_and_bundle(subscription);
-        }
         }
     }
 }
