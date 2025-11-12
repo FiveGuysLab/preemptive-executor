@@ -25,14 +25,30 @@ namespace preemptive_executor
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
+        const auto spin_period = std::chrono::nanoseconds(_SEM_SPIN_NS);
 
         while (true) {
             //3: wait on worker group semaphore
-            worker_group->semaphore->acquire();
+            const auto spin_until = std::chrono::steady_clock::now() + spin_period;
+            auto acquired = false;
+
+            // busy-wait on semaphore for small time roughly capturing exectuor's working time
+            while (!acquired && std::chrono::steady_clock::now() < spin_until) {
+                acquired = worker_group->semaphore->try_acquire();
+            }
+
+            // If not acquired beyond small time, yield-wait
+            if (!acquired) {
+                worker_group->semaphore->acquire();
+                acquired = true;
+            }
 
             if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
                 break;
             }
+
+            // TODO: check exec spinning with a lambda
+            // TODO: What is the difference between that at checking if the context is rclcpp::ok ?
 
             //4: acquire ready queue mutex and 5: pop from ready queue
             std::unique_ptr<BundledExecutable> exec = nullptr;
@@ -46,12 +62,19 @@ namespace preemptive_executor
 
                 std::swap(exec, rq.queue.front());
                 rq.queue.pop();
+                rq.num_working++;
             }
-
-            // TODO: check exec spinning with a lambda
 
             //7: execute executable (placeholder; actual execution integrates with executor run loop)
             exec->run();
+
+            {
+                auto& rq = worker_group->ready_queue;
+                std::lock_guard<std::mutex> guard(rq.mutex);
+                rq.num_working--;
+                // Post-run possible unboost
+                worker_group->update_prio(); // TODO: Also call this after pusing to a mutex group's ready Q for possible boost.
+            }
         }
     }
 
@@ -67,14 +90,13 @@ namespace preemptive_executor
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& thread_group : thread_groups){
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>(thread_group.priority));
             auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
 
             for (int i = 0; i < thread_group.number_of_threads; i++){
                 //spawn number_of_threads amount of threads and populate one worker group per thread
                 auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
                 set_fifo_prio(thread_group.priority, *t);
-                t->detach();
                 worker_group->threads.push_back(std::move(t));
             }
         }
