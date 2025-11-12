@@ -22,11 +22,14 @@ find_package(rcl REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(Threads REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 set(${PROJECT_NAME}_SRCS
   src/preemptive_executor.cpp
   src/bundled_timer.cpp
   src/bundled_subscription.cpp
+  src/yaml_parser.cpp
+  src/callback_registry.cpp
 )
 
 add_library(${PROJECT_NAME} ${${PROJECT_NAME}_SRCS})
@@ -37,6 +40,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp::rclcpp
   rcl::rcl
   Threads::Threads
+  yaml-cpp
 )
 
 install(
