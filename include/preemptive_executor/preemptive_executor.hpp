@@ -36,18 +36,19 @@ namespace preemptive_executor
 
         protected:
             int priority;
+            std::vector<std::unique_ptr<std::thread>> threads;
+            void worker_main();
 
         public:
-            WorkerGroup(int priority_);
+            WorkerGroup(int priority_, int number_of_threads);
             virtual ~WorkerGroup();
-            std::vector<std::unique_ptr<std::thread>> threads;
-            std::shared_ptr<std::counting_semaphore<_CORE_COUNT>> semaphore;
+            std::counting_semaphore<_CORE_COUNT> semaphore;
             ReadyQueue ready_queue;
             // Caller must first acquire the readyQ mutex
             virtual void update_prio();
     };
 
-    class MutexGroup : public WorkerGroup { // NOTE: We don't enforce num threads for this class, but it MUST be == 1
+    class MutexGroup : public WorkerGroup {
         bool is_boosted; // protected by ready_queue.mutex
 
         public:
@@ -99,7 +100,7 @@ namespace preemptive_executor
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)
         
         //data structures for preemptive executor
-        std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map; 
+        std::unordered_map<int, std::unique_ptr<WorkerGroup>>thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
 

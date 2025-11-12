@@ -21,7 +21,7 @@ namespace preemptive_executor
         pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
     }
 
-    void worker_main(std::shared_ptr<WorkerGroup> worker_group){
+    void WorkerGroup::worker_main(){
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
@@ -34,12 +34,12 @@ namespace preemptive_executor
 
             // busy-wait on semaphore for small time roughly capturing exectuor's working time
             while (!acquired && std::chrono::steady_clock::now() < spin_until) {
-                acquired = worker_group->semaphore->try_acquire();
+                acquired = this->semaphore.try_acquire();
             }
 
             // If not acquired beyond small time, yield-wait
             if (!acquired) {
-                worker_group->semaphore->acquire();
+                this->semaphore.acquire();
                 acquired = true;
             }
 
@@ -53,7 +53,7 @@ namespace preemptive_executor
             //4: acquire ready queue mutex and 5: pop from ready queue
             std::unique_ptr<BundledExecutable> exec = nullptr;
             {
-                auto& rq = worker_group->ready_queue;
+                auto& rq = this->ready_queue;
                 std::lock_guard<std::mutex> guard(rq.mutex);
 
                 if (rq.queue.empty() || rq.queue.front() == nullptr) {
@@ -69,11 +69,11 @@ namespace preemptive_executor
             exec->run();
 
             {
-                auto& rq = worker_group->ready_queue;
+                auto& rq = this->ready_queue;
                 std::lock_guard<std::mutex> guard(rq.mutex);
                 rq.num_working--;
                 // Post-run possible unboost
-                worker_group->update_prio(); // TODO: Also call this after pusing to a mutex group's ready Q for possible boost.
+                this->update_prio(); // TODO: Also call this after pusing to a mutex group's ready Q for possible boost.
             }
         }
     }
@@ -90,15 +90,7 @@ namespace preemptive_executor
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& thread_group : thread_groups){
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>(thread_group.priority));
-            auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
-
-            for (int i = 0; i < thread_group.number_of_threads; i++){
-                //spawn number_of_threads amount of threads and populate one worker group per thread
-                auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
-                set_fifo_prio(thread_group.priority, *t);
-                worker_group->threads.push_back(std::move(t));
-            }
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads));
         }
     }
 
