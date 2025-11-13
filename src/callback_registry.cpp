@@ -49,13 +49,13 @@ CallbackRegistry::CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_grou
       adjacency_list_[callbacks[0]] = CallbackAdjacencyInfo_{};
       continue;
     }
-    for (size_t i = 0; i < callbacks.size() - 1; i++) {
-      adjacency_list_[callbacks[i]].outgoing.push_back(callbacks[i + 1]);
+    for (size_t i = 1; i < callbacks.size(); i++) {
+      adjacency_list_[callbacks[i - 1]].outgoing.emplace(callbacks[i]);
+      adjacency_list_[callbacks[i]].indegree++;
       adjacency_list_[callbacks[i]].min_deadline =
           std::min(adjacency_list_[callbacks[i]].min_deadline, pair.second.deadline);
-      adjacency_list_[callbacks[i + 1]].min_deadline =
-          std::min(adjacency_list_[callbacks[i + 1]].min_deadline, pair.second.deadline);
     }
+    adjacency_list_[callbacks[0]].min_deadline = std::min(adjacency_list_[callbacks[0]].min_deadline, pair.second.deadline);
   }
 }
 
@@ -94,12 +94,11 @@ void CallbackRegistry::callback_threadgroup_allocation() {
 void CallbackRegistry::recursive_traversal(
     const std::string& callback_name, std::string threadgroup_id,
     std::map<uint32_t, std::vector<std::string>>& deadline_to_threadgroup_id_map) {
-  // Could use .contains() instead of find() if c++20 :(
-  auto it = callback_map_.find(callback_name);
-  if (it == callback_map_.end()) {
+  const auto callback_it = callback_map_.find(callback_name);
+  if (callback_it == callback_map_.end()) {
     throw std::runtime_error("Callback not found in callback map");
   }
-  const auto& callback_info = it->second;
+  auto& callback_info = callback_it->second;
   // Acts as a visited set to avoid unnecessary recursion
   if (!callback_info.threadgroup_id.empty()) {
     return;
@@ -110,13 +109,16 @@ void CallbackRegistry::recursive_traversal(
   if (threadgroup_id.empty() || is_mutex_group) {
     // For mutex case, use existing threadgroup_id if exists
     std::string new_threadgroup_id;
-    if (is_mutex_group && mutex_threadgroup_map_.find(callback_info.callback_group) != mutex_threadgroup_map_.end()) {
+    if (is_mutex_group && mutex_threadgroup_map_.contains(callback_info.callback_group)) {
       new_threadgroup_id = mutex_threadgroup_map_[callback_info.callback_group];
     } else {
       new_threadgroup_id = generate_threadgroup_id();
+      if (is_mutex_group) {
+        mutex_threadgroup_map_[callback_info.callback_group] = new_threadgroup_id;
+      }
     }
     thread_callback_map_[new_threadgroup_id].callbacks.push_back(callback_name);
-    it->second.threadgroup_id = new_threadgroup_id;
+    callback_info.threadgroup_id = new_threadgroup_id;
     deadline_to_threadgroup_id_map[adjacency_list_[callback_name].min_deadline].push_back(new_threadgroup_id);
 
     if (threadgroup_id.empty()) {
@@ -124,17 +126,16 @@ void CallbackRegistry::recursive_traversal(
     }
   }
 
-  switch (adjacency_list_[callback_name].outgoing.size()) {
+  const auto& outgoing = adjacency_list_[callback_name].outgoing;
+  switch (outgoing.size()) {
     case 1: {
-      const auto& next_callback = adjacency_list_[callback_name].outgoing[0];
+      const auto& next_callback = *outgoing.begin();
       // Next callback has a single incoming edge
       if (adjacency_list_[next_callback].indegree == 1) {
         thread_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
 
-        // Could use .contains() instead of find() if c++20 :(
-        auto it = callback_map_.find(next_callback);
-        if (it != callback_map_.end()) {
-          it->second.threadgroup_id = threadgroup_id;
+        if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
+          next_it->second.threadgroup_id = threadgroup_id;
         }
         recursive_traversal(next_callback, threadgroup_id, deadline_to_threadgroup_id_map);
         break;
@@ -144,7 +145,7 @@ void CallbackRegistry::recursive_traversal(
     default: {
       // Divergent case with N outgoing leads to N new threadgroups or
       // convergent case where next callback has multiple incoming edges
-      for (const auto& next_callback : adjacency_list_[callback_name].outgoing) {
+      for (const auto& next_callback : outgoing) {
         recursive_traversal(next_callback, "", deadline_to_threadgroup_id_map);
       }
       break;

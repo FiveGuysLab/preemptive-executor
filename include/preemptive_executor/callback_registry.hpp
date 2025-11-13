@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 
 #include "preemptive_executor/yaml_parser.hpp"
@@ -103,7 +104,7 @@ class CallbackRegistry {
 
  private:
   struct CallbackAdjacencyInfo_ {
-    std::vector<std::string> outgoing = {};
+    std::unordered_set<std::string> outgoing = {};
     std::uint8_t indegree = 0;
     std::uint32_t min_deadline = UINT32_MAX;
   };
