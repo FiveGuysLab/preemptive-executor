@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstddef>
 #include <sched.h>
 #include <unistd.h>
 #include <cerrno>
@@ -6,6 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "preemptive_executor/preemptive_executor.hpp"
+#include "preemptive_executor/bundled_subscription.hpp"
 #include <linux/sched.h>
 
 
@@ -109,6 +111,91 @@ namespace preemptive_executor
         }
     }
 
+    void PreemptiveExecutor::rt_wait_return() {
+        if (!rt_memory_strategy_) {
+            return;
+        }
+
+        if (thread_group_id_worker_map.empty()) {
+            return;
+        }
+
+        //remove all handles that were not triggered during wait().
+        rt_memory_strategy_->remove_null_handles(&wait_set_);
+
+        std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
+
+        auto resolve_tgid = [this](const rclcpp::AnyExecutable & any_exec) -> int {
+            (void)any_exec;
+            //TODO: Resolve TGID from callback metadata (chain ID, callback group mapping, etc.)
+            //using first available worker group as fallback. TODO: improve this.
+            return thread_group_id_worker_map.begin()->first;
+        };
+
+        auto emplace_bundle = [&bundles_by_tgid](int tgid, std::unique_ptr<BundledExecutable> bundle) {
+            if (!bundle) {
+                return;
+            }
+            bundles_by_tgid[tgid].push_back(std::move(bundle));
+        };
+
+        //iterate through all ready subscriptions and convert them to executable bundles.
+        while (true) {
+            rclcpp::AnyExecutable any_exec;
+            rt_memory_strategy_->get_next_subscription(any_exec, weak_groups_to_nodes_);
+            if (!any_exec.subscription) {
+                break;
+            }
+
+            auto bundle = preemptive_executor::take_and_bundle(any_exec.subscription);
+            if (!bundle) {
+                continue;
+            }
+
+            auto target_tgid = resolve_tgid(any_exec);
+            emplace_bundle(target_tgid, std::move(bundle));
+        }
+
+        //iterate through all ready timers and convert them to executable bundles.
+        while (true) {
+            rclcpp::AnyExecutable any_exec;
+            rt_memory_strategy_->get_next_timer(any_exec, weak_groups_to_nodes_);
+            if (!any_exec.timer) {
+                break;
+            }
+
+            auto bundle = preemptive_executor::BundledTimer::take_and_bundle(any_exec.timer);
+            if (!bundle) {
+                continue;
+            }
+
+            auto target_tgid = resolve_tgid(any_exec);
+            emplace_bundle(target_tgid, std::move(bundle));
+        }
+
+        for (auto & [tgid, bundles] : bundles_by_tgid) {
+            if (bundles.empty()) {
+                continue;
+            }
+
+            auto worker_it = thread_group_id_worker_map.find(tgid);
+            if (worker_it == thread_group_id_worker_map.end()) {
+                continue;
+            }
+            auto & worker_group = worker_it->second;
+
+            {
+                std::lock_guard<std::mutex> guard(worker_group->ready_queue.mutex);
+                for (auto & bundle : bundles) {
+                    worker_group->ready_queue.queue.push(std::move(bundle));
+                }
+            }
+            worker_group->semaphore->release(static_cast<std::ptrdiff_t>(bundles.size()));
+        }
+
+        // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.
+    }
+
     void PreemptiveExecutor::spin() {
         // TODO: Init wait set, collect entities
 
@@ -120,7 +207,7 @@ namespace preemptive_executor
 
             wait_for_work(std::chrono::nanoseconds(-1));
 
-            // TODO: Post-processing the waitresult
+            rt_wait_return();
         }
     }
 }
