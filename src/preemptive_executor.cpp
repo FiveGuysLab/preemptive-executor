@@ -8,7 +8,9 @@
 #include <stdexcept>
 #include "preemptive_executor/preemptive_executor.hpp"
 #include "preemptive_executor/bundled_subscription.hpp"
+#include "preemptive_executor/bundled_timer.hpp"
 #include <linux/sched.h>
+#include <vector>
 
 
 namespace preemptive_executor
@@ -139,36 +141,30 @@ namespace preemptive_executor
             bundles_by_tgid[tgid].push_back(std::move(bundle));
         };
 
-        //iterate through all ready subscriptions and convert them to executable bundles.
-        while (true) {
-            rclcpp::AnyExecutable any_exec;
-            rt_memory_strategy_->get_next_subscription(any_exec, weak_groups_to_nodes_);
-            if (!any_exec.subscription) {
-                break;
-            }
-
-            auto bundle = preemptive_executor::take_and_bundle(any_exec.subscription);
+        std::vector<rclcpp::SubscriptionBase::SharedPtr> ready_subscriptions;
+        rt_memory_strategy_->take_ready_subscriptions(weak_groups_to_nodes_, ready_subscriptions);
+        for (auto & subscription : ready_subscriptions) {
+            auto bundle = preemptive_executor::take_and_bundle(subscription);
             if (!bundle) {
                 continue;
             }
 
+            rclcpp::AnyExecutable any_exec;
+            any_exec.subscription = subscription;
             auto target_tgid = resolve_tgid(any_exec);
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
-        //iterate through all ready timers and convert them to executable bundles.
-        while (true) {
-            rclcpp::AnyExecutable any_exec;
-            rt_memory_strategy_->get_next_timer(any_exec, weak_groups_to_nodes_);
-            if (!any_exec.timer) {
-                break;
-            }
-
-            auto bundle = preemptive_executor::BundledTimer::take_and_bundle(any_exec.timer);
+        std::vector<rclcpp::TimerBase::SharedPtr> ready_timers;
+        rt_memory_strategy_->take_ready_timers(weak_groups_to_nodes_, ready_timers);
+        for (auto & timer : ready_timers) {
+            auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer);
             if (!bundle) {
                 continue;
             }
 
+            rclcpp::AnyExecutable any_exec;
+            any_exec.timer = timer;
             auto target_tgid = resolve_tgid(any_exec);
             emplace_bundle(target_tgid, std::move(bundle));
         }

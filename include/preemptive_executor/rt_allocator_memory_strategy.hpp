@@ -486,6 +486,38 @@ public:
     return waitable_handles_.size();
   }
 
+  void take_ready_subscriptions(
+    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions) override
+  {
+    ready_subscriptions.clear();
+    ready_subscriptions.reserve(subscription_handles_.size());
+    for (const auto & handle : subscription_handles_) {
+      auto subscription = get_subscription_by_handle(handle, weak_groups_to_nodes);
+      if (!subscription) {
+        continue;
+      }
+      ready_subscriptions.push_back(subscription);
+    }
+    subscription_handles_.clear();
+  }
+
+  void take_ready_timers(
+    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) override
+  {
+    ready_timers.clear();
+    ready_timers.reserve(timer_handles_.size());
+    for (const auto & handle : timer_handles_) {
+      auto timer = get_timer_by_handle(handle, weak_groups_to_nodes);
+      if (!timer) {
+        continue;
+      }
+      ready_timers.push_back(timer);
+    }
+    timer_handles_.clear();
+  }
+
   // TODO: Additional method definitions can be added below this
 
 private:
