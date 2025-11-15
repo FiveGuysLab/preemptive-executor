@@ -2,63 +2,19 @@
 #define PREEMPTIVE_EXECUTOR
 
 #include <chrono>
-#include <memory>
-#include <fstream>
-#include <mutex>
-#include <queue>
 #include <thread>
 #include <unordered_map>
-#include <set>
 #include <vector>
 #include <semaphore>
-#include <climits>
 
 #include "rclcpp/executor.hpp"
-#include "bundled_executable.hpp"
 #include "rt_allocator_memory_strategy.hpp"
+#include "worker_group.hpp"
 
 #define MAX_FIFO_PRIO 99
-#define _CORE_COUNT 16 // TODO: this cannot be a config, should we just set a much higher value? There's little disadvantage
-#define _SEM_SPIN_NS // TODO: should probably be a config instead
 
 namespace preemptive_executor
 {
-    void set_fifo_prio(int priority, std::thread& t);
-
-    class WorkerGroup {
-        class ReadyQueue {
-            public:
-                ReadyQueue();
-                std::mutex mutex;
-                std::queue<std::unique_ptr<BundledExecutable>> queue;
-                int num_working;
-        };
-
-        protected:
-            int priority;
-            std::vector<std::unique_ptr<std::thread>> threads;
-            void worker_main();
-
-        public:
-            WorkerGroup(int priority_, int number_of_threads);
-            virtual ~WorkerGroup();
-            std::counting_semaphore<_CORE_COUNT> semaphore;
-            ReadyQueue ready_queue;
-            // Caller must first acquire the readyQ mutex
-            virtual void update_prio();
-    };
-
-    class MutexGroup : public WorkerGroup {
-        bool is_boosted; // protected by ready_queue.mutex
-
-        public:
-            MutexGroup(int priority_);
-            virtual ~MutexGroup();
-            // Caller must first acquire the readyQ mutex
-            virtual void update_prio() override;
-    };
-
-
     struct ThreadGroupAttributes {
         public:
             ThreadGroupAttributes(int tg_id, int number_of_threads, int priority):  tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}

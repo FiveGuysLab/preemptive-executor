@@ -24,6 +24,7 @@ set(${PROJECT_NAME}_SRCS
   src/preemptive_executor.cpp
   src/bundled_timer.cpp
   src/bundled_subscription.cpp
+  src/worker_group.cpp
 )
 
 add_library(${PROJECT_NAME} ${${PROJECT_NAME}_SRCS})
