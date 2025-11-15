@@ -1,8 +1,6 @@
 #ifndef CALLBACK_REGISTRY_HPP
 #define CALLBACK_REGISTRY_HPP
 
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -72,21 +70,31 @@ class CallbackEntity {
   const void* get_raw_pointer() const;
   const EntityVariant& get_generic_pointer() const { return entity_; }
 
+  // Equality operator for use as map key
+  bool operator==(const CallbackEntity& other) const { return get_raw_pointer() == other.get_raw_pointer(); }
+
  private:
   EntityVariant entity_;
   CallbackEntityType type_;
+};
+
+// Hash function for CallbackEntity to use as map key
+struct CallbackEntityHash {
+  std::size_t operator()(const CallbackEntity& entity) const {
+    return std::hash<const void*>{}(entity.get_raw_pointer());
+  }
 };
 
 struct CallbackInfo {
   CallbackEntity entity;
   rclcpp::CallbackGroup::SharedPtr callback_group;
   rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node;
-  std::string callback_name = "";
-  std::string threadgroup_id = "";
+  std::string callback_name;
+  int threadgroup_id = 0;
 
   CallbackInfo(CallbackEntity e, rclcpp::CallbackGroup::SharedPtr group,
-               rclcpp::node_interfaces::NodeBaseInterface::SharedPtr n)
-      : entity(std::move(e)), callback_group(group), node(n) {}
+               rclcpp::node_interfaces::NodeBaseInterface::SharedPtr n, std::string name = "")
+      : entity(std::move(e)), callback_group(group), node(n), callback_name(name) {}
 };
 
 class CallbackRegistry {
@@ -97,8 +105,11 @@ class CallbackRegistry {
                    const std::unordered_map<std::string, userChain>& user_chains);
   ~CallbackRegistry();
 
-  // Single function that handles all callback entity types using std::visit
-  std::string get_callback_name(const CallbackEntity& entity);
+  // Can be called before or after CallbackRegistry construction
+  static void register_callback_name(const CallbackEntity& entity, const std::string& name);
+
+  // Get callback name from entity (assumes callback was registered)
+  std::string get_callback_name(const CallbackEntity& entity) const;
 
   void callback_threadgroup_allocation();
 
@@ -106,24 +117,35 @@ class CallbackRegistry {
   struct CallbackAdjacencyInfo_ {
     std::unordered_set<std::string> outgoing = {};
     std::uint8_t indegree = 0;
+    std::vector<std::uint32_t> deadlines = {};
+    std::vector<std::uint32_t> periods = {};
     std::uint32_t min_deadline = UINT32_MAX;
   };
 
-  struct ThreadInfo_ {
-    std::string thread_id;
+  struct ThreadGroupInfo_ {
+    int threadgroup_id = 0;  // technically redundant since it's the map key, but kept for clarity
     std::vector<std::string> callbacks;
     std::uint32_t min_deadline = UINT32_MAX;
     uint16_t fixed_priority = 0;
+    uint16_t num_threads = 1;
   };
 
   std::unordered_map<std::string, CallbackAdjacencyInfo_> adjacency_list_;
-  std::unordered_map<rclcpp::CallbackGroup::SharedPtr, std::string> mutex_threadgroup_map_;
+  std::unordered_map<rclcpp::CallbackGroup::SharedPtr, int> mutex_threadgroup_map_;
   std::unordered_map<std::string, CallbackInfo> callback_map_;
-  std::unordered_map<std::string, ThreadInfo_> thread_callback_map_;
+  std::unordered_map<int, ThreadGroupInfo_> threadgroup_callback_map_;
 
-  void recursive_traversal(const std::string& callback_name, std::string threadgroup_id,
-                           std::map<uint32_t, std::vector<std::string>>& deadline_to_threadgroup_id_map);
-  std::string generate_threadgroup_id();
+  static int next_threadgroup_id_;
+  static std::unordered_map<CallbackEntity, std::string, CallbackEntityHash>
+      pre_registered_names_;  // Static map for pre-construction registration
+
+  void recursive_traversal(const std::string& callback_name, int threadgroup_id,
+                           std::map<uint32_t, std::vector<int>>& deadline_to_threadgroup_id_map);
+  int generate_threadgroup_id();
+
+  // Helper to register a callback entity (used by collect_all_ptrs lambdas)
+  void register_callback_entity(const CallbackEntity& entity, rclcpp::CallbackGroup::SharedPtr group,
+                                rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node);
 };
 }  // namespace preemptive_executor
 

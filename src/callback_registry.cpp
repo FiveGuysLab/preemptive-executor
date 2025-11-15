@@ -1,8 +1,14 @@
 #include "preemptive_executor/callback_registry.hpp"
 
-#include <boost/uuid/uuid_io.hpp>
+#include <cmath>
 
 namespace preemptive_executor {
+
+// Initialize static counter
+int CallbackRegistry::next_threadgroup_id_{1};
+
+// Initialize static pre-registration map
+std::unordered_map<CallbackEntity, std::string, CallbackEntityHash> CallbackRegistry::pre_registered_names_{};
 
 CallbackRegistry::CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
                                    const std::unordered_map<std::string, userChain>& user_chains) {
@@ -10,35 +16,27 @@ CallbackRegistry::CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_grou
     auto group = pair.first.lock();
     auto node = pair.second.lock();
 
-    if (group == nullptr || node == nullptr) {
-      continue;
-    }
-
-    if (!group->can_be_taken_from().load()) {
+    if (group == nullptr || node == nullptr || !group->can_be_taken_from().load()) {
       continue;
     }
 
     // Collect all callback entities from callback groups
+    // Assumes all callbacks have been pre-registered with names
     group->collect_all_ptrs(
         [this, group, node](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
-          const auto callback_entity = CallbackEntity(subscription);
-          callback_map_.emplace(get_callback_name(callback_entity), CallbackInfo{callback_entity, group, node});
+          register_callback_entity(CallbackEntity(subscription), group, node);
         },
         [this, group, node](const rclcpp::ServiceBase::SharedPtr& service) {
-          const auto callback_entity = CallbackEntity(service);
-          callback_map_.emplace(get_callback_name(callback_entity), CallbackInfo{callback_entity, group, node});
+          register_callback_entity(CallbackEntity(service), group, node);
         },
         [this, group, node](const rclcpp::ClientBase::SharedPtr& client) {
-          const auto callback_entity = CallbackEntity(client);
-          callback_map_.emplace(get_callback_name(callback_entity), CallbackInfo{callback_entity, group, node});
+          register_callback_entity(CallbackEntity(client), group, node);
         },
         [this, group, node](const rclcpp::TimerBase::SharedPtr& timer) {
-          const auto callback_entity = CallbackEntity(timer);
-          callback_map_.emplace(get_callback_name(callback_entity), CallbackInfo{callback_entity, group, node});
+          register_callback_entity(CallbackEntity(timer), group, node);
         },
         [this, group, node](const rclcpp::Waitable::SharedPtr& waitable) {
-          const auto callback_entity = CallbackEntity(waitable);
-          callback_map_.emplace(get_callback_name(callback_entity), CallbackInfo{callback_entity, group, node});
+          register_callback_entity(CallbackEntity(waitable), group, node);
         });
   }
 
@@ -49,13 +47,16 @@ CallbackRegistry::CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_grou
       adjacency_list_[callbacks[0]] = CallbackAdjacencyInfo_{};
       continue;
     }
-    for (size_t i = 1; i < callbacks.size(); i++) {
-      adjacency_list_[callbacks[i - 1]].outgoing.emplace(callbacks[i]);
-      adjacency_list_[callbacks[i]].indegree++;
+    for (size_t i = 0; i < callbacks.size(); i++) {
+      if (i > 0) {
+        adjacency_list_[callbacks[i - 1]].outgoing.emplace(callbacks[i]);
+        adjacency_list_[callbacks[i]].indegree++;
+      }
+      adjacency_list_[callbacks[i]].deadlines.push_back(pair.second.deadline);
+      adjacency_list_[callbacks[i]].periods.push_back(pair.second.period);
       adjacency_list_[callbacks[i]].min_deadline =
           std::min(adjacency_list_[callbacks[i]].min_deadline, pair.second.deadline);
     }
-    adjacency_list_[callbacks[0]].min_deadline = std::min(adjacency_list_[callbacks[0]].min_deadline, pair.second.deadline);
   }
 }
 
@@ -63,18 +64,14 @@ const void* CallbackEntity::get_raw_pointer() const {
   return std::visit([](auto&& ptr) -> const void* { return ptr.get(); }, entity_);
 }
 
-std::string CallbackRegistry::generate_threadgroup_id() {
-  boost::uuids::random_generator generator;
-  boost::uuids::uuid uuid = generator();
-  return boost::uuids::to_string(uuid);
-}
+int CallbackRegistry::generate_threadgroup_id() { return next_threadgroup_id_++; }
 
 // Break user chains into threads based on graph structure and in-degrees
 void CallbackRegistry::callback_threadgroup_allocation() {
-  std::map<uint32_t, std::vector<std::string>> deadline_to_threadgroup_id_map = {};
+  std::map<uint32_t, std::vector<int>> deadline_to_threadgroup_id_map = {};
   for (const auto& pair : adjacency_list_) {
     if (pair.second.indegree == 0) {
-      recursive_traversal(pair.first, "", deadline_to_threadgroup_id_map);
+      recursive_traversal(pair.first, 0, deadline_to_threadgroup_id_map);
     }
   }
   // Assign fixed priority to threadgroups (deadline monotonic) starting from 1
@@ -84,31 +81,39 @@ void CallbackRegistry::callback_threadgroup_allocation() {
       // std::map iteration is increasing order so deadline monotonic is
       // maintained Need to check if already assigned since mutex threadgroups
       // could have multiple entries in the map
-      if (thread_callback_map_[threadgroup_id].fixed_priority == 0) {
-        thread_callback_map_[threadgroup_id].fixed_priority = fixed_priority_counter++;
+      auto& threadgroup_info = threadgroup_callback_map_[threadgroup_id];
+      if (threadgroup_info.fixed_priority == 0) {
+        threadgroup_info.fixed_priority = fixed_priority_counter++;
+      }
+      if (threadgroup_info.callbacks.empty()) {
+        throw std::runtime_error("Threadgroup has no callbacks, this should not happen");
+      }
+      threadgroup_info.num_threads = 0;
+      const auto& callback_info = adjacency_list_[threadgroup_info.callbacks[0]];
+      for (size_t i = 0; i < callback_info.deadlines.size(); i++) {
+        threadgroup_info.num_threads += std::ceil(callback_info.deadlines[i] / callback_info.periods[i]);
       }
     }
   }
 }
 
-void CallbackRegistry::recursive_traversal(
-    const std::string& callback_name, std::string threadgroup_id,
-    std::map<uint32_t, std::vector<std::string>>& deadline_to_threadgroup_id_map) {
+void CallbackRegistry::recursive_traversal(const std::string& callback_name, int threadgroup_id,
+                                           std::map<uint32_t, std::vector<int>>& deadline_to_threadgroup_id_map) {
   const auto callback_it = callback_map_.find(callback_name);
   if (callback_it == callback_map_.end()) {
     throw std::runtime_error("Callback not found in callback map");
   }
   auto& callback_info = callback_it->second;
   // Acts as a visited set to avoid unnecessary recursion
-  if (!callback_info.threadgroup_id.empty()) {
+  if (callback_info.threadgroup_id != 0) {
     return;
   }
 
   bool is_mutex_group = callback_info.callback_group->type() == rclcpp::CallbackGroupType::MutuallyExclusive;
   // First callback in new threadgroup or mutually exclusive callback group
-  if (threadgroup_id.empty() || is_mutex_group) {
+  if (threadgroup_id == 0 || is_mutex_group) {
     // For mutex case, use existing threadgroup_id if exists
-    std::string new_threadgroup_id;
+    int new_threadgroup_id;
     if (is_mutex_group && mutex_threadgroup_map_.contains(callback_info.callback_group)) {
       new_threadgroup_id = mutex_threadgroup_map_[callback_info.callback_group];
     } else {
@@ -117,11 +122,12 @@ void CallbackRegistry::recursive_traversal(
         mutex_threadgroup_map_[callback_info.callback_group] = new_threadgroup_id;
       }
     }
-    thread_callback_map_[new_threadgroup_id].callbacks.push_back(callback_name);
+    threadgroup_callback_map_[new_threadgroup_id].callbacks.push_back(callback_name);
+    threadgroup_callback_map_[new_threadgroup_id].threadgroup_id = new_threadgroup_id;
     callback_info.threadgroup_id = new_threadgroup_id;
     deadline_to_threadgroup_id_map[adjacency_list_[callback_name].min_deadline].push_back(new_threadgroup_id);
 
-    if (threadgroup_id.empty()) {
+    if (threadgroup_id == 0) {
       threadgroup_id = new_threadgroup_id;
     }
   }
@@ -132,7 +138,7 @@ void CallbackRegistry::recursive_traversal(
       const auto& next_callback = *outgoing.begin();
       // Next callback has a single incoming edge
       if (adjacency_list_[next_callback].indegree == 1) {
-        thread_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
+        threadgroup_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
 
         if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
           next_it->second.threadgroup_id = threadgroup_id;
@@ -146,16 +152,53 @@ void CallbackRegistry::recursive_traversal(
       // Divergent case with N outgoing leads to N new threadgroups or
       // convergent case where next callback has multiple incoming edges
       for (const auto& next_callback : outgoing) {
-        recursive_traversal(next_callback, "", deadline_to_threadgroup_id_map);
+        recursive_traversal(next_callback, 0, deadline_to_threadgroup_id_map);
       }
       break;
     }
   }
 }
 
-std::string CallbackRegistry::get_callback_name(const CallbackEntity& entity) {
-  /* todo */
-  return "";
+void CallbackRegistry::register_callback_entity(const CallbackEntity& entity, rclcpp::CallbackGroup::SharedPtr group,
+                                                rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node) {
+  const auto entity_it = pre_registered_names_.find(entity);
+  if (entity_it == pre_registered_names_.end()) {
+    throw std::runtime_error("Callback not pre-registered");
+  }
+
+  const std::string callback_name = entity_it->second;
+  callback_map_.emplace(callback_name, CallbackInfo{entity, group, node, callback_name});
+}
+
+// Static method - can be called before or after construction
+void CallbackRegistry::register_callback_name(const CallbackEntity& entity, const std::string& name) {
+  if (name.empty()) {
+    throw std::runtime_error("Callback name is empty");
+  }
+
+  if (pre_registered_names_.contains(entity)) {
+    throw std::runtime_error("Callback already registered");
+  }
+  pre_registered_names_[entity] = name;
+}
+
+std::string CallbackRegistry::get_callback_name(const CallbackEntity& entity) const {
+  // Check instance map (contains all pre-registered names copied during construction)
+  const auto entity_it = pre_registered_names_.find(entity);
+  if (entity_it != pre_registered_names_.end()) {
+    return entity_it->second;
+  }
+
+  // are there implicit callbacks that users don't explicitly define? hope not...
+  // If not found, check if it's already in callback_map_ (was scanned)
+  // for (const auto& pair : callback_map_) {
+  //   if (pair.second.entity == entity) {
+  //     return pair.second.callback_name;
+  //   }
+  // }
+
+  // Should not happen if callback was registered
+  throw std::runtime_error("Callback not registered");
 }
 
 }  // namespace preemptive_executor
