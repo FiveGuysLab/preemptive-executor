@@ -16,6 +16,7 @@
 #define PREEMPTIVE_EXECUTOR__STRATEGIES__ALLOCATOR_MEMORY_STRATEGY_HPP_
 
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 #include "rcl/allocator.h"
@@ -490,15 +491,7 @@ public:
     const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
     std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions) override
   {
-    ready_subscriptions.clear();
-    ready_subscriptions.reserve(subscription_handles_.size());
-    for (const auto & handle : subscription_handles_) {
-      auto subscription = get_subscription_by_handle(handle, weak_groups_to_nodes);
-      if (!subscription) {
-        continue;
-      }
-      ready_subscriptions.push_back(subscription);
-    }
+    get_subscriptions_by_handles(weak_groups_to_nodes, ready_subscriptions);
     subscription_handles_.clear();
   }
 
@@ -506,21 +499,106 @@ public:
     const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
     std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) override
   {
-    ready_timers.clear();
-    ready_timers.reserve(timer_handles_.size());
-    for (const auto & handle : timer_handles_) {
-      auto timer = get_timer_by_handle(handle, weak_groups_to_nodes);
-      if (!timer) {
-        continue;
-      }
-      ready_timers.push_back(timer);
-    }
+    get_timers_by_handles(weak_groups_to_nodes, ready_timers);
     timer_handles_.clear();
   }
 
-  // TODO: Additional method definitions can be added below this
-
 private:
+  void get_subscriptions_by_handles(
+    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions) const
+  {
+    ready_subscriptions.clear();
+    if (subscription_handles_.empty()) {
+      return;
+    }
+
+    std::unordered_set<const rcl_subscription_t *> ready_handles;
+    ready_handles.reserve(subscription_handles_.size());
+    for (const auto & handle : subscription_handles_) {
+      if (handle) {
+        ready_handles.insert(handle.get());
+      }
+    }
+
+    if (ready_handles.empty()) {
+      return;
+    }
+
+    for (const auto & pair : weak_groups_to_nodes) {
+      if (ready_handles.empty()) {
+        break;
+      }
+
+      auto group = pair.first.lock();
+      if (!group) {
+        continue;
+      }
+
+      group->collect_all_ptrs(
+        [&ready_handles, &ready_subscriptions](
+          const rclcpp::SubscriptionBase::SharedPtr & subscription) {
+          auto handle = subscription->get_subscription_handle();
+          if (handle && ready_handles.erase(handle.get()) > 0) {
+            ready_subscriptions.push_back(subscription);
+          }
+        },
+        [](const rclcpp::ServiceBase::SharedPtr &) {},
+        [](const rclcpp::ClientBase::SharedPtr &) {},
+        [](const rclcpp::TimerBase::SharedPtr &) {}, //timers are gathered via get_timers_by_handles()
+        [](const rclcpp::Waitable::SharedPtr &) {}
+      );
+    }
+  }
+
+  void get_timers_by_handles(
+    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) const
+  {
+    ready_timers.clear();
+    if (timer_handles_.empty()) {
+      return;
+    }
+
+    std::unordered_set<const rcl_timer_t *> ready_handles;
+    ready_handles.reserve(timer_handles_.size());
+    for (const auto & handle : timer_handles_) {
+      if (handle) {
+        ready_handles.insert(handle.get());
+      }
+    }
+
+    if (ready_handles.empty()) {
+      return;
+    }
+
+    for (const auto & pair : weak_groups_to_nodes) {
+      if (ready_handles.empty()) {
+        break;
+      }
+
+      auto group = pair.first.lock();
+      if (!group) {
+        continue;
+      }
+
+      group->collect_all_ptrs(
+        [](const rclcpp::SubscriptionBase::SharedPtr &) {}, // subscriptions are gathered via get_subscriptions_by_handles()
+        [](const rclcpp::ServiceBase::SharedPtr &) {},
+        [](const rclcpp::ClientBase::SharedPtr &) {},
+        [&ready_handles, &ready_timers](const rclcpp::TimerBase::SharedPtr & timer) {
+          auto handle = timer->get_timer_handle();
+          if (handle && ready_handles.erase(handle.get()) > 0) {
+            ready_timers.push_back(timer);
+          }
+        },
+        [](const rclcpp::Waitable::SharedPtr &) {}       
+      );
+    }
+  }
+
+  //TODO: Add get support for services, clients, and waitables 
+
   template<typename T>
   using VectorRebind =
     std::vector<T, typename std::allocator_traits<Alloc>::template rebind_alloc<T>>;

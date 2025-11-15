@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include "preemptive_executor/preemptive_executor.hpp"
 #include "preemptive_executor/bundled_subscription.hpp"
 #include "preemptive_executor/bundled_timer.hpp"
@@ -113,7 +114,7 @@ namespace preemptive_executor
         }
     }
 
-    void PreemptiveExecutor::rt_wait_return() {
+    void PreemptiveExecutor::populate_ready_queues() {
         if (!rt_memory_strategy_) {
             return;
         }
@@ -127,8 +128,8 @@ namespace preemptive_executor
 
         std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
 
-        auto resolve_tgid = [this](const rclcpp::AnyExecutable & any_exec) -> int {
-            (void)any_exec;
+        auto resolve_tgid = [this](const BundledExecutable & bundle) -> int {
+            (void)bundle;
             //TODO: Resolve TGID from callback metadata (chain ID, callback group mapping, etc.)
             //using first available worker group as fallback. TODO: improve this.
             return thread_group_id_worker_map.begin()->first;
@@ -149,9 +150,7 @@ namespace preemptive_executor
                 continue;
             }
 
-            rclcpp::AnyExecutable any_exec;
-            any_exec.subscription = subscription;
-            auto target_tgid = resolve_tgid(any_exec);
+            auto target_tgid = resolve_tgid(*bundle);
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
@@ -163,9 +162,7 @@ namespace preemptive_executor
                 continue;
             }
 
-            rclcpp::AnyExecutable any_exec;
-            any_exec.timer = timer;
-            auto target_tgid = resolve_tgid(any_exec);
+            auto target_tgid = resolve_tgid(*bundle);
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
@@ -176,7 +173,8 @@ namespace preemptive_executor
 
             auto worker_it = thread_group_id_worker_map.find(tgid);
             if (worker_it == thread_group_id_worker_map.end()) {
-                continue;
+                throw std::runtime_error("Unknown thread group id " + std::to_string(tgid) +
+                    " when dispatching rexady bundles");
             }
             auto & worker_group = worker_it->second;
 
@@ -203,7 +201,7 @@ namespace preemptive_executor
 
             wait_for_work(std::chrono::nanoseconds(-1));
 
-            rt_wait_return();
+            populate_ready_queues();
         }
     }
 }
