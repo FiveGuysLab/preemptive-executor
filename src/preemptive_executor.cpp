@@ -133,18 +133,7 @@ namespace preemptive_executor
         {
             unique_groups.insert(entry.callback_group);
         }
-        for (const auto &[handle, entry] : current_collection_.services)
-        {
-            unique_groups.insert(entry.callback_group);
-        }
-        for (const auto &[handle, entry] : current_collection_.clients)
-        {
-            unique_groups.insert(entry.callback_group);
-        }
-        for (const auto &[handle, entry] : current_collection_.waitables)
-        {
-            unique_groups.insert(entry.callback_group);
-        }
+        // TODO: Add support for services, clients, and waitables
 
         // For each callback group, try to find its associated node
 
