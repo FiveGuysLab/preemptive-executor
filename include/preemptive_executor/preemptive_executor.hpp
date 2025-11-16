@@ -65,6 +65,7 @@ namespace preemptive_executor
         bool get_next_executable(rclcpp::AnyExecutable &any_executable, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1));
         bool get_next_ready_executable( rclcpp::AnyExecutable &any_executable);
         void wait_for_work(std::chrono::nanoseconds timeout);
+        void collect_entities(); // Override to also populate memory strategy's handle vectors
 
         //helper methods for preemptive executor
         void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
