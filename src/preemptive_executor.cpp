@@ -157,12 +157,9 @@ namespace preemptive_executor
                 continue;
             }
 
-            // Try to find the node associated with this callback group
-            // We'll use an empty weak_ptr for now - the memory strategy can handle this
-            rclcpp::node_interfaces::NodeBaseInterface::WeakPtr associated_node;
-
             // For now, we'll use an empty node - the memory strategy should still work
             // as it mainly uses callback groups to collect handles
+            rclcpp::node_interfaces::NodeBaseInterface::WeakPtr associated_node;
             weak_groups_to_nodes[weak_group] = associated_node;
         }
 
