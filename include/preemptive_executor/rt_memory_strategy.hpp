@@ -53,12 +53,9 @@ public:
 
   virtual ~RTMemoryStrategy() = default;
 
-  virtual void take_ready_subscriptions(
+  virtual void take_ready_handles(
     const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
-    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions) = 0;
-
-  virtual void take_ready_timers(
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions,
     std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) = 0;
 };
 

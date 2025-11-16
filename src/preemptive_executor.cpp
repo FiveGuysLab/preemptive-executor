@@ -82,6 +82,8 @@ namespace preemptive_executor
 
     void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
     {
+        //TODO: @viraj add remove_null_handles() to wait_for_work() 
+
         using rclcpp::exceptions::throw_from_rcl_error;
         TRACEPOINT(rclcpp_executor_wait_for_work, timeout.count());
 
@@ -123,8 +125,6 @@ namespace preemptive_executor
             return;
         }
 
-        //remove all handles that were not triggered during wait().
-        rt_memory_strategy_->remove_null_handles(&wait_set_);
 
         std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
 
@@ -143,7 +143,11 @@ namespace preemptive_executor
         };
 
         std::vector<rclcpp::SubscriptionBase::SharedPtr> ready_subscriptions;
-        rt_memory_strategy_->take_ready_subscriptions(weak_groups_to_nodes_, ready_subscriptions);
+        std::vector<rclcpp::TimerBase::SharedPtr> ready_timers;
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            rt_memory_strategy_->take_ready_handles(weak_groups_to_nodes_, ready_subscriptions, ready_timers);
+        }
         for (auto & subscription : ready_subscriptions) {
             auto bundle = preemptive_executor::take_and_bundle(subscription);
             if (!bundle) {
@@ -154,8 +158,6 @@ namespace preemptive_executor
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
-        std::vector<rclcpp::TimerBase::SharedPtr> ready_timers;
-        rt_memory_strategy_->take_ready_timers(weak_groups_to_nodes_, ready_timers);
         for (auto & timer : ready_timers) {
             auto bundle = preemptive_executor::BundledTimer::take_and_bundle(timer);
             if (!bundle) {
