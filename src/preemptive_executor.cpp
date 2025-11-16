@@ -148,14 +148,7 @@ namespace preemptive_executor
         }
 
         // For each callback group, try to find its associated node
-        // Since entities don't directly expose nodes, we'll use a workaround:
-        // we'll check if callback groups can help us find nodes.
-        // For now, we'll build the map with callback groups and try to find nodes
-        // by checking if the callback group belongs to any node we can access.
-        //
-        // Note: The memory strategy's collect_entities() can handle missing nodes
-        // (it checks for null nodes and continues), but it's better to have them.
-        // For a proper implementation, we should maintain this mapping when nodes are added.
+
 
         for (const auto &weak_group : unique_groups)
         {
@@ -167,7 +160,6 @@ namespace preemptive_executor
 
             // Try to find the node associated with this callback group
             // We'll use an empty weak_ptr for now - the memory strategy can handle this
-            // TODO: Properly find nodes by maintaining a mapping when nodes are added
             rclcpp::node_interfaces::NodeBaseInterface::WeakPtr associated_node;
 
             // For now, we'll use an empty node - the memory strategy should still work
