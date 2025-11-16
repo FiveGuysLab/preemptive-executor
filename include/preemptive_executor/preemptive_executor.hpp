@@ -69,6 +69,7 @@ namespace preemptive_executor
         //helper methods for preemptive executor
         void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
         void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
+        void populate_ready_queues(); // bundles ready work items and schedules them on worker groups
 
         // Replacing the wait set wrappers that we'll be using
         memory_strategy::RTMemoryStrategy::SharedPtr
