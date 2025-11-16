@@ -12,7 +12,7 @@
 
 namespace preemptive_executor
 {
-    void set_fifo_prio(int priority, std::thread &t){
+    void set_fifo_prio(int priority, std::thread& t){
         const auto param = sched_param{priority};
         pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
     }
@@ -54,7 +54,7 @@ namespace preemptive_executor
     PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions &options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
         : Executor(options), rt_memory_strategy_(rt_memory_strategy)
     {
-        if (memory_strategy_ != rt_memory_strategy_){
+        if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
         }
     }
@@ -62,7 +62,7 @@ namespace preemptive_executor
     void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
-        for (auto& thread_group : thread_groups){
+        for(auto& thread_group : thread_groups){
             thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
             auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
 
@@ -105,8 +105,7 @@ namespace preemptive_executor
             RCUTILS_LOG_WARN_NAMED(
                 "rclcpp",
                 "empty wait set received in rcl_wait(). This should never happen.");
-        }
-        else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
+        } else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
             throw_from_rcl_error(status, "rcl_wait() failed");
         }
     }
