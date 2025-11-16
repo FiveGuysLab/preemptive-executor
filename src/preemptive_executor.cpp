@@ -16,45 +16,6 @@
 
 namespace preemptive_executor
 {
-    void set_fifo_prio(int priority, std::thread& t){
-        const auto param = sched_param{priority};
-        pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
-    }
-
-    void worker_main(std::shared_ptr<WorkerGroup> worker_group){
-
-        //1: set timing policy // NOTE: Handled by dispatcher
-        //2: register with thread group // NOTE: Registration handled by dispatcher
-
-        while (true) {
-            //3: wait on worker group semaphore
-            worker_group->semaphore->acquire();
-
-            if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
-                break;
-            }
-
-            //4: acquire ready queue mutex and 5: pop from ready queue
-            std::unique_ptr<BundledExecutable> exec = nullptr;
-            {
-                auto& rq = worker_group->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-
-                if (rq.queue.empty() || rq.queue.front() == nullptr) {
-                    throw std::runtime_error("Ready Q state invalid");
-                }
-
-                std::swap(exec, rq.queue.front());
-                rq.queue.pop();
-            }
-
-            // TODO: check exec spinning with a lambda
-
-            //7: execute executable (placeholder; actual execution integrates with executor run loop)
-            exec->run();
-        }
-    }
-
     PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
     :   Executor(options), rt_memory_strategy_(rt_memory_strategy)
     {
@@ -67,16 +28,7 @@ namespace preemptive_executor
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& thread_group : thread_groups){
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
-            auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
-
-            for (int i = 0; i < thread_group.number_of_threads; i++){
-                //spawn number_of_threads amount of threads and populate one worker group per thread
-                auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
-                set_fifo_prio(thread_group.priority, *t);
-                t->detach();
-                worker_group->threads.push_back(std::move(t));
-            }
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads));
         }
     }
 
@@ -185,8 +137,9 @@ namespace preemptive_executor
                 for (auto & bundle : bundles) {
                     worker_group->ready_queue.queue.push(std::move(bundle));
                 }
+                worker_group->update_prio();
             }
-            worker_group->semaphore->release(static_cast<std::ptrdiff_t>(bundles.size()));
+            worker_group->semaphore.release(static_cast<std::ptrdiff_t>(bundles.size()));
         }
 
         // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.
