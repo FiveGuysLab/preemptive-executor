@@ -40,12 +40,18 @@ namespace preemptive_executor {
             return;
         }
 
+        if (this->threads.size() != 1) {
+            throw std::runtime_error("MutexGroup with multiple threads- invalid state");
+        }
+
         auto& t = *(this->threads.front());
         if (should_boost) {
             set_fifo_prio(MAX_FIFO_PRIO, t);
+            is_boosted = true;
             return;
         }
         set_fifo_prio(this->priority, t);
+        is_boosted = false;
     }
 
     void WorkerGroup::worker_main(){
@@ -100,7 +106,7 @@ namespace preemptive_executor {
                 std::lock_guard<std::mutex> guard(rq.mutex);
                 rq.num_working--;
                 // Post-run possible unboost
-                this->update_prio(); // TODO: Also call this after pusing to a mutex group's ready Q for possible boost.
+                this->update_prio();
             }
         }
     }

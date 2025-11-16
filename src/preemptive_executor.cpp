@@ -137,8 +137,9 @@ namespace preemptive_executor
                 for (auto & bundle : bundles) {
                     worker_group->ready_queue.queue.push(std::move(bundle));
                 }
+                worker_group->update_prio();
             }
-            worker_group->semaphore->release(static_cast<std::ptrdiff_t>(bundles.size()));
+            worker_group->semaphore.release(static_cast<std::ptrdiff_t>(bundles.size()));
         }
 
         // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.
