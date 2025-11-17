@@ -97,13 +97,27 @@ struct CallbackInfo {
       : entity(std::move(e)), callback_group(group), node(n), callback_name(name) {}
 };
 
+struct ThreadGroupInfo {
+  int threadgroup_id = 0;  // technically redundant since it's the map key, but kept for clarity
+  std::vector<std::string> callbacks;
+  std::uint32_t min_deadline = UINT32_MAX;
+  uint16_t fixed_priority = 0;
+  uint16_t num_threads = 1;
+  bool is_mutex_group = false;
+};
+
 class CallbackRegistry {
+  // Singleton
  public:
   using WeakCallbackGroupsToNodesMap = rclcpp::memory_strategy::MemoryStrategy::WeakCallbackGroupsToNodesMap;
 
-  CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
-                   const std::unordered_map<std::string, userChain>& user_chains);
   ~CallbackRegistry();
+
+  static CallbackRegistry& get_instance(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
+                                        const std::unordered_map<std::string, userChain>& user_chains) {
+    static CallbackRegistry instance(weak_groups_to_nodes, user_chains);
+    return instance;
+  }
 
   // Can be called before or after CallbackRegistry construction
   static void register_callback_name(const CallbackEntity& entity, const std::string& name);
@@ -113,7 +127,18 @@ class CallbackRegistry {
 
   void callback_threadgroup_allocation();
 
+  // Getters for internal maps
+  const std::unordered_map<std::string, CallbackInfo>& get_callback_map() const { return callback_map_; }
+  const std::unordered_map<int, ThreadGroupInfo>& get_threadgroup_callback_map() const {
+    return threadgroup_callback_map_;
+  }
+
  private:
+  CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
+                   const std::unordered_map<std::string, userChain>& user_chains);
+  CallbackRegistry(const CallbackRegistry&) = delete;
+  CallbackRegistry& operator=(const CallbackRegistry&) = delete;
+  
   struct CallbackAdjacencyInfo_ {
     std::unordered_set<std::string> outgoing = {};
     std::uint8_t indegree = 0;
@@ -122,25 +147,26 @@ class CallbackRegistry {
     std::uint32_t min_deadline = UINT32_MAX;
   };
 
-  struct ThreadGroupInfo_ {
-    int threadgroup_id = 0;  // technically redundant since it's the map key, but kept for clarity
-    std::vector<std::string> callbacks;
-    std::uint32_t min_deadline = UINT32_MAX;
-    uint16_t fixed_priority = 0;
-    uint16_t num_threads = 1;
+  struct ThreadGroupAdjacencyInfo_ {
+    std::unordered_set<int> outgoing = {};
+    std::unordered_set<int> incoming = {};
+
+    std::uint8_t indegree() const { return incoming.size(); }
   };
 
   std::unordered_map<std::string, CallbackAdjacencyInfo_> adjacency_list_;
+  std::unordered_map<int, ThreadGroupAdjacencyInfo_> threadgroup_adjacency_list_;
   std::unordered_map<rclcpp::CallbackGroup::SharedPtr, int> mutex_threadgroup_map_;
   std::unordered_map<std::string, CallbackInfo> callback_map_;
-  std::unordered_map<int, ThreadGroupInfo_> threadgroup_callback_map_;
+  std::unordered_map<int, ThreadGroupInfo> threadgroup_callback_map_;
 
-  static int next_threadgroup_id_;
+  int next_threadgroup_id_ = 1;  // Instance member since class is singleton
   static std::unordered_map<CallbackEntity, std::string, CallbackEntityHash>
       pre_registered_names_;  // Static map for pre-construction registration
 
-  void recursive_traversal(const std::string& callback_name, int threadgroup_id,
-                           std::map<uint32_t, std::vector<int>>& deadline_to_threadgroup_id_map);
+  void recursive_callback_traversal(const std::string& callback_name, int threadgroup_id, int prev_threadgroup_id,
+                                    std::map<uint32_t, std::vector<int>>& deadline_to_threadgroup_id_map);
+  void recursive_threadgroup_traversal(int threadgroup_id);
   int generate_threadgroup_id();
 
   // Helper to register a callback entity (used by collect_all_ptrs lambdas)

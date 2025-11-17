@@ -1,11 +1,9 @@
 #include "preemptive_executor/callback_registry.hpp"
 
 #include <cmath>
+#include <algorithm>
 
 namespace preemptive_executor {
-
-// Initialize static counter
-int CallbackRegistry::next_threadgroup_id_{1};
 
 // Initialize static pre-registration map
 std::unordered_map<CallbackEntity, std::string, CallbackEntityHash> CallbackRegistry::pre_registered_names_{};
@@ -71,7 +69,7 @@ void CallbackRegistry::callback_threadgroup_allocation() {
   std::map<uint32_t, std::vector<int>> deadline_to_threadgroup_id_map = {};
   for (const auto& pair : adjacency_list_) {
     if (pair.second.indegree == 0) {
-      recursive_traversal(pair.first, 0, deadline_to_threadgroup_id_map);
+      recursive_callback_traversal(pair.first, 0, 0, deadline_to_threadgroup_id_map);
     }
   }
   // Assign fixed priority to threadgroups (deadline monotonic) starting from 1
@@ -85,19 +83,18 @@ void CallbackRegistry::callback_threadgroup_allocation() {
       if (threadgroup_info.fixed_priority == 0) {
         threadgroup_info.fixed_priority = fixed_priority_counter++;
       }
-      if (threadgroup_info.callbacks.empty()) {
-        throw std::runtime_error("Threadgroup has no callbacks, this should not happen");
-      }
-      threadgroup_info.num_threads = 0;
-      const auto& callback_info = adjacency_list_[threadgroup_info.callbacks[0]];
-      for (size_t i = 0; i < callback_info.deadlines.size(); i++) {
-        threadgroup_info.num_threads += std::ceil(callback_info.deadlines[i] / callback_info.periods[i]);
-      }
+    }
+  }
+
+  // Calculate number of threads for each threadgroup
+  for (const auto& pair : threadgroup_adjacency_list_) {
+    if (pair.second.indegree() == 0 && !threadgroup_callback_map_[pair.first].is_mutex_group) {
+      recursive_threadgroup_traversal(pair.first);
     }
   }
 }
 
-void CallbackRegistry::recursive_traversal(const std::string& callback_name, int threadgroup_id,
+void CallbackRegistry::recursive_callback_traversal(const std::string& callback_name, int threadgroup_id, int prev_threadgroup_id,
                                            std::map<uint32_t, std::vector<int>>& deadline_to_threadgroup_id_map) {
   const auto callback_it = callback_map_.find(callback_name);
   if (callback_it == callback_map_.end()) {
@@ -116,10 +113,12 @@ void CallbackRegistry::recursive_traversal(const std::string& callback_name, int
     int new_threadgroup_id;
     if (is_mutex_group && mutex_threadgroup_map_.contains(callback_info.callback_group)) {
       new_threadgroup_id = mutex_threadgroup_map_[callback_info.callback_group];
+      threadgroup_callback_map_[new_threadgroup_id].is_mutex_group = true;
     } else {
       new_threadgroup_id = generate_threadgroup_id();
       if (is_mutex_group) {
         mutex_threadgroup_map_[callback_info.callback_group] = new_threadgroup_id;
+        threadgroup_callback_map_[new_threadgroup_id].is_mutex_group = true;
       }
     }
     threadgroup_callback_map_[new_threadgroup_id].callbacks.push_back(callback_name);
@@ -129,6 +128,8 @@ void CallbackRegistry::recursive_traversal(const std::string& callback_name, int
 
     if (threadgroup_id == 0) {
       threadgroup_id = new_threadgroup_id;
+      threadgroup_adjacency_list_[prev_threadgroup_id].outgoing.insert(new_threadgroup_id);
+      threadgroup_adjacency_list_[new_threadgroup_id].incoming.insert(prev_threadgroup_id);
     }
   }
 
@@ -143,7 +144,7 @@ void CallbackRegistry::recursive_traversal(const std::string& callback_name, int
         if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
           next_it->second.threadgroup_id = threadgroup_id;
         }
-        recursive_traversal(next_callback, threadgroup_id, deadline_to_threadgroup_id_map);
+        recursive_callback_traversal(next_callback, threadgroup_id, prev_threadgroup_id, deadline_to_threadgroup_id_map);
         break;
       }
       [[fallthrough]];
@@ -152,10 +153,32 @@ void CallbackRegistry::recursive_traversal(const std::string& callback_name, int
       // Divergent case with N outgoing leads to N new threadgroups or
       // convergent case where next callback has multiple incoming edges
       for (const auto& next_callback : outgoing) {
-        recursive_traversal(next_callback, 0, deadline_to_threadgroup_id_map);
+        if (!threadgroup_callback_map_[threadgroup_id].is_mutex_group) {
+          prev_threadgroup_id = threadgroup_id;
+        }
+        recursive_callback_traversal(next_callback, 0, threadgroup_id, deadline_to_threadgroup_id_map);
       }
       break;
     }
+  }
+}
+
+void CallbackRegistry::recursive_threadgroup_traversal(int threadgroup_id) {
+  auto& threadgroup_info = threadgroup_callback_map_[threadgroup_id];
+  threadgroup_info.num_threads = 0;
+  if (threadgroup_adjacency_list_[threadgroup_id].indegree() == 0) {
+    // Assuming roots have the same period if part of multiple chains
+    const auto& first_callback_info = adjacency_list_[threadgroup_info.callbacks[0]];
+    auto period = first_callback_info.periods[0];
+    auto deadline = std::max_element(first_callback_info.deadlines.begin(), first_callback_info.deadlines.end());
+    threadgroup_info.num_threads = std::ceil(*deadline / period);
+  } else {
+    for (auto& prev_threadgroup_id : threadgroup_adjacency_list_[threadgroup_id].incoming) {
+      threadgroup_info.num_threads += threadgroup_callback_map_[prev_threadgroup_id].num_threads;
+    }
+  }
+  for (auto& next_threadgroup_id : threadgroup_adjacency_list_[threadgroup_id].outgoing) {
+    recursive_threadgroup_traversal(next_threadgroup_id);
   }
 }
 
