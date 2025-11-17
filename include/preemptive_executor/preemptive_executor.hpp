@@ -26,7 +26,7 @@ namespace preemptive_executor
             public:
                 std::mutex mutex;
                 std::queue<std::unique_ptr<BundledExecutable>> queue;
-            };
+        };
 
         public:
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
@@ -37,9 +37,10 @@ namespace preemptive_executor
             ReadyQueue ready_queue;
     };
 
+
     struct ThreadGroupAttributes {
         public:
-            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority): tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}
+            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority):  tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}
             int tg_id;
             int number_of_threads;
             int priority; //int from 1-99
@@ -68,7 +69,7 @@ namespace preemptive_executor
 
         //helper methods for preemptive executor
         void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
-        void* get_callback_handle(const rclcpp::AnyExecutable& executable);  //get callback handle from different ROS2 callback types
+        void* get_callback_handle(const rclcpp::AnyExecutable& executable);   //get callback handle from different ROS2 callback types
 
         // Replacing the wait set wrappers that we'll be using
         memory_strategy::RTMemoryStrategy::SharedPtr
@@ -81,7 +82,7 @@ namespace preemptive_executor
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
-        // TODO: need a map bw chain id and ready set after ready set is defined
+        //TODO: need a map bw chain id and ready set after ready set is defined
     };
 
 } 
