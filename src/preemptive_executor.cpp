@@ -4,7 +4,6 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
-#include <set>
 #include <stdexcept>
 #include "preemptive_executor/preemptive_executor.hpp"
 #include <linux/sched.h>
@@ -12,7 +11,7 @@
 
 namespace preemptive_executor
 {
-    void set_fifo_prio(int priority, std::thread &t){
+    void set_fifo_prio(int priority, std::thread& t){
         const auto param = sched_param{priority};
         pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
     }
@@ -23,7 +22,7 @@ namespace preemptive_executor
         //2: register with thread group // NOTE: Registration handled by dispatcher
 
         while (true) {
-            // 3: wait on worker group semaphore
+            //3: wait on worker group semaphore
             worker_group->semaphore->acquire();
 
             if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
@@ -52,7 +51,7 @@ namespace preemptive_executor
     }
 
     PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
-    :  Executor(options), rt_memory_strategy_(rt_memory_strategy)
+    :   Executor(options), rt_memory_strategy_(rt_memory_strategy)
     {
         if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
@@ -97,7 +96,8 @@ namespace preemptive_executor
             if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
                 throw std::runtime_error("Couldn't fill wait set");
             }
-        }   
+        }
+           
         rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
 
         if (status == RCL_RET_WAIT_SET_EMPTY) {
