@@ -97,7 +97,7 @@ namespace preemptive_executor
             if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
                 throw std::runtime_error("Couldn't fill wait set");
             }
-        }
+        }   
         rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
 
         if (status == RCL_RET_WAIT_SET_EMPTY) {

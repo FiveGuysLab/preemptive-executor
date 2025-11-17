@@ -12,7 +12,6 @@
 #include <vector>
 #include <semaphore>
 #include <climits>
-#include <map>
 
 #include "rclcpp/executor.hpp"
 #include "bundled_executable.hpp"
@@ -81,27 +80,6 @@ namespace preemptive_executor
         std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
-
-        typedef std::map<rclcpp::CallbackGroup::WeakPtr,
-                const rclcpp::GuardCondition *,
-                std::owner_less<rclcpp::CallbackGroup::WeakPtr>>
-            WeakCallbackGroupsToGuardConditionsMap;
-
-        // maps callback groups to guard conditions
-        WeakCallbackGroupsToGuardConditionsMap
-            weak_groups_to_guard_conditions_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
-
-        /// maps callback groups associated to nodes
-        rclcpp::WeakCallbackGroupsToNodesMap
-            weak_groups_associated_with_executor_to_nodes_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
-
-        /// maps callback groups to nodes associated with executor
-        rclcpp::WeakCallbackGroupsToNodesMap
-            weak_groups_to_nodes_associated_with_executor_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
-
-        /// maps all callback groups to nodes
-        rclcpp::WeakCallbackGroupsToNodesMap
-            weak_groups_to_nodes_ RCPPUTILS_TSA_GUARDED_BY(mutex_);
 
         // TODO: need a map bw chain id and ready set after ready set is defined
     };
