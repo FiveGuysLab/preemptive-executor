@@ -77,12 +77,13 @@ namespace preemptive_executor
 
     private:
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)
+
         //data structures for preemptive executor
         std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
 
-        //TODO: need a map bw chain id and ready set after ready set is defined
+        //TODO: need a map bw chain id and ready set after ready set is defined 
     };
 
 } 
