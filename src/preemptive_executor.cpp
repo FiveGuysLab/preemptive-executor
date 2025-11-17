@@ -126,6 +126,9 @@ namespace preemptive_executor
 
     void PreemptiveExecutor::collect_entities()
     {
+        // Is this function call needed if we're not supporting dynamic entity changes?
+        // add_callback_groups_from_nodes_associated_to_executor();
+
         // Clear the handles from the memory strategy
         rt_memory_strategy_->clear_handles();
 
