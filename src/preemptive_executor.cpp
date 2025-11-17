@@ -191,6 +191,7 @@ namespace preemptive_executor
 
             // Check if interrupt guard condition was triggered (indicates entity changes)
             // We don't support dynamic entity changes, so throw if entities were added/removed
+            // Uses existing interrupt guard condition from Executor class
             {
                 std::lock_guard<std::mutex> guard(mutex_);
                 const rcl_guard_condition_t *interrupt_gc = &interrupt_guard_condition_.get_rcl_guard_condition();
