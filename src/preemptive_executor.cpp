@@ -9,38 +9,34 @@
 #include "preemptive_executor/preemptive_executor.hpp"
 #include <linux/sched.h>
 
+
 namespace preemptive_executor
 {
-    void set_fifo_prio(int priority, std::thread &t)
-    {
+    void set_fifo_prio(int priority, std::thread &t){
         const auto param = sched_param{priority};
         pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
     }
 
-    void worker_main(std::shared_ptr<WorkerGroup> worker_group)
-    {
+    void worker_main(std::shared_ptr<WorkerGroup> worker_group){
 
-        // 1: set timing policy // NOTE: Handled by dispatcher
-        // 2: register with thread group // NOTE: Registration handled by dispatcher
+        //1: set timing policy // NOTE: Handled by dispatcher
+        //2: register with thread group // NOTE: Registration handled by dispatcher
 
-        while (true)
-        {
+        while (true) {
             // 3: wait on worker group semaphore
             worker_group->semaphore->acquire();
 
-            if (!rclcpp::ok())
-            { // TODO: We didn't pass in the context, so this does nothing
+            if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
                 break;
             }
 
-            // 4: acquire ready queue mutex and 5: pop from ready queue
+            //4: acquire ready queue mutex and 5: pop from ready queue
             std::unique_ptr<BundledExecutable> exec = nullptr;
             {
-                auto &rq = worker_group->ready_queue;
+                auto& rq = worker_group->ready_queue;
                 std::lock_guard<std::mutex> guard(rq.mutex);
 
-                if (rq.queue.empty() || rq.queue.front() == nullptr)
-                {
+                if (rq.queue.empty() || rq.queue.front() == nullptr) {
                     throw std::runtime_error("Ready Q state invalid");
                 }
 
@@ -50,29 +46,25 @@ namespace preemptive_executor
 
             // TODO: check exec spinning with a lambda
 
-            // 7: execute executable (placeholder; actual execution integrates with executor run loop)
+            //7: execute executable (placeholder; actual execution integrates with executor run loop)
             exec->run();
         }
     }
 
-    PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions &options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
-        : Executor(options), rt_memory_strategy_(rt_memory_strategy)
+    PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
+    : Executor(options), rt_memory_strategy_(rt_memory_strategy)
     {
-        if (memory_strategy_ != rt_memory_strategy_)
-        {
+        if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
         }
     }
 
-    void PreemptiveExecutor::spawn_worker_groups()
-    {
+    void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
-        for (auto &thread_group : thread_groups)
-        {
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
-            auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
-
+        for (int i = 0; i < thread_group.number_of_threads; i++){
+            //spawn number_of_threads amount of threads and populate one worker group per thread
+            auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
             for (int i = 0; i < thread_group.number_of_threads; i++)
             {
                 // spawn number_of_threads amount of threads and populate one worker group per thread
@@ -98,28 +90,23 @@ namespace preemptive_executor
 
             // clear wait set
             rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
-            if (ret != RCL_RET_OK)
-            {
+            if (ret != RCL_RET_OK) {
                 throw_from_rcl_error(ret, "Couldn't clear wait set");
             }
 
             // add handles to wait on
-            if (!memory_strategy_->add_handles_to_wait_set(&wait_set_))
-            {
+            if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
                 throw std::runtime_error("Couldn't fill wait set");
             }
         }
 
         rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
 
-        if (status == RCL_RET_WAIT_SET_EMPTY)
-        {
+        if (status == RCL_RET_WAIT_SET_EMPTY) {
             RCUTILS_LOG_WARN_NAMED(
                 "rclcpp",
                 "empty wait set received in rcl_wait(). This should never happen.");
-        }
-        else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT)
-        {
+        } else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
             throw_from_rcl_error(status, "rcl_wait() failed");
         }
     }
