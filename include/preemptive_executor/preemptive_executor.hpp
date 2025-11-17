@@ -24,28 +24,27 @@ namespace preemptive_executor
 {
     class WorkerGroup {
         class ReadyQueue {
-        public:
-            std::mutex mutex;
-            std::queue<std::unique_ptr<BundledExecutable>> queue;
-        };
+            public:
+                std::mutex mutex;
+                std::queue<std::unique_ptr<BundledExecutable>> queue;
+            };
 
         public:
             //constructor for WorkerGroup should take in a vector of thread ids and instantiate the semaphore to make those thread id wait on it
-            WorkerGroup() : semaphore(std::make_unique<std::counting_semaphore<_CORE_COUNT>>(0)) {}
+            WorkerGroup(): semaphore(std::make_unique<std::counting_semaphore<_CORE_COUNT>>(0)) {}
             ~WorkerGroup(); // TODO:
             std::vector<std::unique_ptr<std::thread>> threads;
             std::shared_ptr<std::counting_semaphore<_CORE_COUNT>> semaphore;
             ReadyQueue ready_queue;
     };
 
-        struct ThreadGroupAttributes
-        {
+    struct ThreadGroupAttributes {
         public:
-            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority) : tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}
+            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority): tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}
             int tg_id;
             int number_of_threads;
-            int priority; // int from 1-99
-        };
+            int priority; //int from 1-99
+    };
 
     class PreemptiveExecutor : protected rclcpp::Executor
     {
@@ -68,9 +67,9 @@ namespace preemptive_executor
         void wait_for_work(std::chrono::nanoseconds timeout);
         void collect_entities(); // Override to also populate memory strategy's handle vectors
 
-        // helper methods for preemptive executor
-        void spawn_worker_groups(); // called in spin, spawns all WorkerGroups based on thread attributes
-        void *get_callback_handle(const rclcpp::AnyExecutable& executable);  // get callback handle from different ROS2 callback types
+        //helper methods for preemptive executor
+        void spawn_worker_groups(); //called in spin, spawns all WorkerGroups based on thread attributes
+        void* get_callback_handle(const rclcpp::AnyExecutable& executable);  //get callback handle from different ROS2 callback types
 
         // Replacing the wait set wrappers that we'll be using
         memory_strategy::RTMemoryStrategy::SharedPtr
@@ -78,9 +77,8 @@ namespace preemptive_executor
 
     private:
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)
-
         //data structures for preemptive executor
-        std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map;
+        std::unordered_map<int, std::shared_ptr<WorkerGroup>>thread_group_id_worker_map; 
 
         std::vector<ThreadGroupAttributes> thread_groups;
 

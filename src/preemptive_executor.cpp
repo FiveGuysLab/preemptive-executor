@@ -52,7 +52,7 @@ namespace preemptive_executor
     }
 
     PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
-    : Executor(options), rt_memory_strategy_(rt_memory_strategy)
+    :  Executor(options), rt_memory_strategy_(rt_memory_strategy)
     {
         if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
@@ -60,16 +60,15 @@ namespace preemptive_executor
     }
 
     void PreemptiveExecutor::spawn_worker_groups() {
-        // thread groups have number of threads as an int
+        // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
-        for (int i = 0; i < thread_group.number_of_threads; i++){
-            //spawn number_of_threads amount of threads and populate one worker group per thread
-            auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
-            for (int i = 0; i < thread_group.number_of_threads; i++)
-            {
-                // spawn number_of_threads amount of threads and populate one worker group per thread
-                auto t = std::make_unique<std::thread>([worker_group]() -> void
-                                                       { worker_main(worker_group); }); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
+        for(auto& thread_group : thread_groups){
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_shared<WorkerGroup>());
+            auto worker_group = thread_group_id_worker_map.at(thread_group.tg_id);
+
+            for (int i = 0; i < thread_group.number_of_threads; i++){
+                //spawn number_of_threads amount of threads and populate one worker group per thread
+                auto t = std::make_unique<std::thread>([worker_group]() -> void {worker_main(worker_group);}); // TODO: pass in lamba to exec any executable. Or we could pass in this, but its a little excessive
                 set_fifo_prio(thread_group.priority, *t);
                 t->detach();
                 worker_group->threads.push_back(std::move(t));
@@ -99,7 +98,6 @@ namespace preemptive_executor
                 throw std::runtime_error("Couldn't fill wait set");
             }
         }
-
         rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
 
         if (status == RCL_RET_WAIT_SET_EMPTY) {
