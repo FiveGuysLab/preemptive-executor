@@ -18,6 +18,7 @@
 #include "rclcpp/subscription_base.hpp"
 #include "rclcpp/timer.hpp"
 #include "rclcpp/waitable.hpp"
+#include "preemptive_executor/preemptive_executor.hpp"
 
 namespace preemptive_executor {
 
@@ -105,6 +106,11 @@ struct ThreadGroupInfo {
   bool is_mutex_group = false;
 };
 
+struct TimingExport {
+  std::unique_ptr<std::unordered_map<void*, int>> callback_handle_to_threadgroup_id;
+  std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> threadgroup_attributes;
+};
+
 class CallbackRegistry {
   // Singleton
  public:
@@ -124,13 +130,7 @@ class CallbackRegistry {
   // Get callback name from entity (assumes callback was registered)
   std::string get_callback_name(const CallbackEntity& entity) const;
 
-  void callback_threadgroup_allocation();
-
-  // Getters for internal maps
-  const std::unordered_map<std::string, CallbackInfo>& get_callback_map() const { return callback_map_; }
-  const std::unordered_map<int, ThreadGroupInfo>& get_threadgroup_callback_map() const {
-    return threadgroup_callback_map_;
-  }
+  TimingExport callback_threadgroup_allocation();
 
  private:
   CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
@@ -171,6 +171,9 @@ class CallbackRegistry {
   // Helper to register a callback entity (used by collect_all_ptrs lambdas)
   void register_callback_entity(const CallbackEntity& entity, rclcpp::CallbackGroup::SharedPtr group,
                                 rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node);
+  
+  // Helper to export timing information
+  TimingExport export_timing_information();
 };
 }  // namespace preemptive_executor
 

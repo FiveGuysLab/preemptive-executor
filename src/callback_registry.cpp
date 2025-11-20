@@ -65,7 +65,7 @@ const void* CallbackEntity::get_raw_pointer() const {
 int CallbackRegistry::generate_threadgroup_id() { return next_threadgroup_id_++; }
 
 // Break user chains into threads based on graph structure and in-degrees
-void CallbackRegistry::callback_threadgroup_allocation() {
+TimingExport CallbackRegistry::callback_threadgroup_allocation() {
   std::map<uint32_t, std::vector<int>> deadline_to_threadgroup_id_map = {};
   for (const auto& pair : adjacency_list_) {
     if (pair.second.indegree == 0) {
@@ -92,6 +92,40 @@ void CallbackRegistry::callback_threadgroup_allocation() {
       recursive_threadgroup_traversal(pair.first);
     }
   }
+
+  return export_timing_information();
+}
+
+TimingExport CallbackRegistry::export_timing_information() {
+  TimingExport timing_export;
+  timing_export.callback_handle_to_threadgroup_id = std::make_unique<std::unordered_map<void*, int>>();
+  timing_export.threadgroup_attributes = std::make_unique<std::unordered_map<int, ThreadGroupAttributes>>();
+
+  for (const auto& pair : callback_map_) {
+    const auto& callback_info = pair.second;
+    void* raw_ptr = const_cast<void*>(callback_info.entity.get_raw_pointer());
+    if (callback_info.threadgroup_id == 0) {
+      throw std::runtime_error("Callback " + callback_info.callback_name + " has not been assigned to any threadgroup");
+    }
+    (*timing_export.callback_handle_to_threadgroup_id)[raw_ptr] = callback_info.threadgroup_id;
+  }
+
+  for (const auto& pair : threadgroup_callback_map_) {
+    const auto& threadgroup_info = pair.second;
+    ThreadGroupAttributes attributes(threadgroup_info.threadgroup_id, threadgroup_info.num_threads,
+                                    threadgroup_info.fixed_priority);
+    (*timing_export.threadgroup_attributes)[threadgroup_info.threadgroup_id] = attributes;
+  }
+
+  // clear all internal data structures
+  adjacency_list_.clear();
+  threadgroup_adjacency_list_.clear();
+  mutex_threadgroup_map_.clear();
+  callback_map_.clear();
+  threadgroup_callback_map_.clear();
+  next_threadgroup_id_ = 1;
+
+  return timing_export;
 }
 
 void CallbackRegistry::recursive_callback_traversal(const std::string& callback_name, int threadgroup_id, int prev_threadgroup_id,
