@@ -8,10 +8,16 @@ void set_fifo_prio(int priority, std::thread& t){
 namespace preemptive_executor {
     WorkerGroup::ReadyQueue::ReadyQueue(): num_working(0) {}
 
-    WorkerGroup::WorkerGroup(int priority_, int number_of_threads): priority(priority_), semaphore(0) {
+    WorkerGroup::WorkerGroup(
+        int priority_,
+        int number_of_threads,
+        rclcpp::Context::SharedPtr context,
+        const std::atomic_bool& spinning
+    ): priority(priority_), exec_context(context), exec_spinning(spinning), semaphore(0)
+    {
         for (int i = 0; i < number_of_threads; i++){
             //spawn number_of_threads amount of threads and populate one worker group per thread
-            auto t = std::make_unique<std::thread>([this]() -> void {this->worker_main();}); // TODO: pass in some context, spinning state- maybe in a lambda
+            auto t = std::make_unique<std::thread>([this]() -> void {this->worker_main();});
             set_fifo_prio(this->priority, *t);
             this->threads.push_back(std::move(t));
         }
@@ -27,7 +33,11 @@ namespace preemptive_executor {
 
     void WorkerGroup::update_prio() {}
 
-    MutexGroup::MutexGroup(int priority_): WorkerGroup(priority_, 1), is_boosted(false) {}
+    MutexGroup::MutexGroup(
+        int priority_, 
+        rclcpp::Context::SharedPtr context,
+        const std::atomic_bool& spinning
+    ): WorkerGroup(priority_, 1, context, spinning), is_boosted(false) {}
 
     MutexGroup::~MutexGroup() {}
 
@@ -54,7 +64,7 @@ namespace preemptive_executor {
         is_boosted = false;
     }
 
-    void WorkerGroup::worker_main(){
+    void WorkerGroup::worker_main() {
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
@@ -76,12 +86,9 @@ namespace preemptive_executor {
                 acquired = true;
             }
 
-            if (!rclcpp::ok()){ // TODO: We didn't pass in the context, so this does nothing
+            if (!rclcpp::ok(exec_context)|| !exec_spinning.load()){
                 break;
             }
-
-            // TODO: check exec spinning with a lambda
-            // TODO: What is the difference between that at checking if the context is rclcpp::ok ?
 
             //4: acquire ready queue mutex and 5: pop from ready queue
             std::unique_ptr<BundledExecutable> exec = nullptr;
