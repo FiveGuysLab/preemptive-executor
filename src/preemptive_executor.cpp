@@ -121,6 +121,16 @@ namespace preemptive_executor
         }
         RCPPUTILS_SCOPE_EXIT(this->spinning.store(false); );
 
+        /**
+         * TODO: We currently don't support many things the default executor does. We could consider
+         * making this private inheritance and then just expose what we do support.
+         * 
+         * TODO: We should support non-rt chains- ie, callback_handle_to_threadgroup_id->at(...) fails
+         * But we need some custom mutex handling for those, so its not yet implemented.
+         * 
+         * TODO: We need to test how shutdown behaves with this executor.
+         *  */
+
         load_timing_info();
 
         spawn_worker_groups();
