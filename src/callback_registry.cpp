@@ -113,7 +113,6 @@ void CallbackRegistry::recursive_callback_traversal(const std::string& callback_
     int new_threadgroup_id;
     if (is_mutex_group && mutex_threadgroup_map_.contains(callback_info.callback_group)) {
       new_threadgroup_id = mutex_threadgroup_map_[callback_info.callback_group];
-      threadgroup_callback_map_[new_threadgroup_id].is_mutex_group = true;
     } else {
       new_threadgroup_id = generate_threadgroup_id();
       if (is_mutex_group) {
@@ -134,33 +133,32 @@ void CallbackRegistry::recursive_callback_traversal(const std::string& callback_
   }
 
   const auto& outgoing = adjacency_list_[callback_name].outgoing;
-  switch (outgoing.size()) {
-    case 1: {
-      const auto& next_callback = *outgoing.begin();
-      // Next callback has a single incoming edge
-      if (adjacency_list_[next_callback].indegree == 1) {
-        threadgroup_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
+  const auto& next_callback = *outgoing.begin();
+  if (adjacency_list_[next_callback].indegree == 1 && outgoing.size() == 1) {
+    // Next callback has a single incoming edge
+    threadgroup_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
 
-        if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
-          next_it->second.threadgroup_id = threadgroup_id;
-        }
-        recursive_callback_traversal(next_callback, threadgroup_id, prev_threadgroup_id, deadline_to_threadgroup_id_map);
-        break;
-      }
-      [[fallthrough]];
+    // if (!callback_map_.contains(next_callback)) {
+    //   throw std::runtime_error("Callback not found in callback map");
+    // }
+    // callback_map_[next_callback].threadgroup_id = threadgroup_id;
+    if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
+      next_it->second.threadgroup_id = threadgroup_id;
+    } else {
+      throw std::runtime_error("Callback not found in callback map");
     }
-    default: {
-      // Divergent case with N outgoing leads to N new threadgroups or
-      // convergent case where next callback has multiple incoming edges
-      for (const auto& next_callback : outgoing) {
-        if (!threadgroup_callback_map_[threadgroup_id].is_mutex_group) {
-          prev_threadgroup_id = threadgroup_id;
-        }
-        recursive_callback_traversal(next_callback, 0, threadgroup_id, deadline_to_threadgroup_id_map);
-      }
-      break;
-    }
+    return recursive_callback_traversal(next_callback, threadgroup_id, prev_threadgroup_id, deadline_to_threadgroup_id_map);
   }
+
+  // Divergent case with N outgoing leads to N new threadgroups or
+  // convergent case where next callback has multiple incoming edges
+  for (const auto& next_callback : outgoing) {
+    if (!threadgroup_callback_map_[threadgroup_id].is_mutex_group) {
+      prev_threadgroup_id = threadgroup_id;
+    }
+    recursive_callback_traversal(next_callback, 0, threadgroup_id, deadline_to_threadgroup_id_map);
+  }
+  return;
 }
 
 void CallbackRegistry::recursive_threadgroup_traversal(int threadgroup_id) {

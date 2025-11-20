@@ -100,7 +100,6 @@ struct CallbackInfo {
 struct ThreadGroupInfo {
   int threadgroup_id = 0;  // technically redundant since it's the map key, but kept for clarity
   std::vector<std::string> callbacks;
-  std::uint32_t min_deadline = UINT32_MAX;
   uint16_t fixed_priority = 0;
   uint16_t num_threads = 1;
   bool is_mutex_group = false;
