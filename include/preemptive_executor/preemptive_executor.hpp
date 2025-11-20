@@ -17,10 +17,11 @@ namespace preemptive_executor
 {
     struct ThreadGroupAttributes {
         public:
-            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority):  tg_id(tg_id), number_of_threads(number_of_threads), priority(priority) {}
+            ThreadGroupAttributes(int tg_id, int number_of_threads, int priority, bool is_mutex_group):  tg_id(tg_id), number_of_threads(number_of_threads), priority(priority), is_mutex_group(is_mutex_group) {}
             int tg_id;
             int number_of_threads;
             int priority; //int from 1-99
+            bool is_mutex_group;
     };
 
     class PreemptiveExecutor : protected rclcpp::Executor
@@ -29,7 +30,11 @@ namespace preemptive_executor
         RCLCPP_SMART_PTR_DEFINITIONS(PreemptiveExecutor)
 
         //constructor for PreemptiveExecutor
-        RCLCPP_PUBLIC explicit PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy);
+        RCLCPP_PUBLIC explicit PreemptiveExecutor(
+            const rclcpp::ExecutorOptions & options,
+            memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy,
+            const std::unordered_map<std::string, userChain>& user_chains
+        );
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
@@ -48,8 +53,10 @@ namespace preemptive_executor
         
         //data structures for preemptive executor
         std::unordered_map<int, std::unique_ptr<WorkerGroup>>thread_group_id_worker_map; 
-
-        std::vector<ThreadGroupAttributes> thread_groups;
+        std::unique_ptr<std::unordered_map<void*, int>> callback_handle_to_threadgroup_id;
+        std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> thread_groups;
+        const std::unordered_map<std::string, userChain>& user_chains;
+        void load_timing_info();
     };
 
 } 

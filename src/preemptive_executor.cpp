@@ -7,17 +7,20 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <linux/sched.h>
+#include <vector>
 #include "preemptive_executor/preemptive_executor.hpp"
 #include "preemptive_executor/bundled_subscription.hpp"
 #include "preemptive_executor/bundled_timer.hpp"
-#include <linux/sched.h>
-#include <vector>
+#include "preemptive_executor/callback_registry.hpp"
 
 
 namespace preemptive_executor
 {
-    PreemptiveExecutor::PreemptiveExecutor(const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy)
-    :   Executor(options), rt_memory_strategy_(rt_memory_strategy)
+    PreemptiveExecutor::PreemptiveExecutor(
+        const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy,
+        const std::unordered_map<std::string, userChain>& user_chains
+    ):   Executor(options), rt_memory_strategy_(rt_memory_strategy), user_chains(user_chains)
     {
         if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
@@ -29,7 +32,8 @@ namespace preemptive_executor
     void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
-        for(auto& thread_group : thread_groups){
+        for(auto& pair : (*thread_groups)){
+            auto& thread_group = pair.second;
             thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads, context_, spinning));
         }
     }
@@ -45,13 +49,6 @@ namespace preemptive_executor
 
 
         std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
-
-        auto resolve_tgid = [this](const BundledExecutable & bundle) -> int {
-            (void)bundle;
-            //TODO: Resolve TGID from callback metadata (chain ID, callback group mapping, etc.)
-            //using first available worker group as fallback. TODO: improve this.
-            return thread_group_id_worker_map.begin()->first;
-        };
 
         auto emplace_bundle = [&bundles_by_tgid](int tgid, std::unique_ptr<BundledExecutable> bundle) {
             if (!bundle) {
@@ -72,7 +69,7 @@ namespace preemptive_executor
                 continue;
             }
 
-            auto target_tgid = resolve_tgid(*bundle);
+            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
@@ -82,7 +79,7 @@ namespace preemptive_executor
                 continue;
             }
 
-            auto target_tgid = resolve_tgid(*bundle);
+            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
@@ -111,11 +108,20 @@ namespace preemptive_executor
         // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.
     }
 
+    void PreemptiveExecutor::load_timing_info() {
+        auto& registry = CallbackRegistry::get_instance(weak_groups_to_nodes_, user_chains);
+        TimingExport result = registry.callback_threadgroup_allocation();
+        std::swap(callback_handle_to_threadgroup_id, result.callback_handle_to_threadgroup_id);
+        std::swap(thread_groups, result.threadgroup_attributes);
+    }
+
     void PreemptiveExecutor::spin() {
         if (spinning.exchange(true)) {
             throw std::runtime_error("spin_some() called while already spinning");
         }
         RCPPUTILS_SCOPE_EXIT(this->spinning.store(false); );
+
+        load_timing_info();
 
         spawn_worker_groups();
 

@@ -16,6 +16,11 @@ namespace preemptive_executor
         return std::make_unique<BundledTimer>(timer, _p);
     }
 
+    void* BundledTimer::get_raw_handle() const
+    {
+        return timer.get();
+    }
+
     void BundledTimer::run()
     {
         timer->execute_callback();

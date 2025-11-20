@@ -15,6 +15,7 @@ namespace preemptive_executor
 
 	public:
 		virtual void run() = 0;
+		virtual void* get_raw_handle() const override;
 	};
 
 	class LoanedMsgSubscription : public BundledSubscription

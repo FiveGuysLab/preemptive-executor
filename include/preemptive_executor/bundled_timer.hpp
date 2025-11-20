@@ -16,6 +16,7 @@ namespace preemptive_executor
         BundledTimer(rclcpp::TimerBase::SharedPtr timer, Priv& _);
         static std::unique_ptr<BundledExecutable> take_and_bundle(rclcpp::TimerBase::SharedPtr timer);
         void run() override;
+        void* get_raw_handle() const override;
     };
 }
 

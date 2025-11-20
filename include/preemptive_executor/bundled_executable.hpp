@@ -9,6 +9,7 @@ namespace preemptive_executor
         struct Priv {};
     public:
         virtual void run() = 0;
+        virtual void* get_raw_handle() const = 0;
         virtual ~BundledExecutable() {};
     };
 }
