@@ -9,7 +9,7 @@ namespace  preemptive_executor {
     constexpr int _SEM_MAX_AT_LEAST = 50000; // TODO: How should we set this value?
 
     class WorkerGroup {
-        class ReadyQueue {
+        class ReadyQueue { // TODO: Lock-free Q needed
             public:
                 ReadyQueue();
                 std::mutex mutex;

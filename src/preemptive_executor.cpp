@@ -34,7 +34,13 @@ namespace preemptive_executor
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& pair : (*thread_groups)){
             auto& thread_group = pair.second;
-            thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads, context_, spinning));
+            std::unique_ptr<WorkerGroup> wg = nullptr;
+            if (thread_group.is_mutex_group) {
+                wg = std::make_unique<MutexGroup>(thread_group.priority, context_, spinning);
+            } else {
+                wg = std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads, context_, spinning);
+            }
+            thread_group_id_worker_map.emplace(thread_group.tg_id, std::move(wg));
         }
     }
 
