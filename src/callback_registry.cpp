@@ -114,7 +114,7 @@ TimingExport CallbackRegistry::export_timing_information() {
     const auto& threadgroup_info = pair.second;
     ThreadGroupAttributes attributes(threadgroup_info.threadgroup_id, threadgroup_info.num_threads,
                                     threadgroup_info.fixed_priority, threadgroup_info.is_mutex_group);
-    (*timing_export.threadgroup_attributes)[threadgroup_info.threadgroup_id] = attributes;
+    (*timing_export.threadgroup_attributes).emplace(threadgroup_info.threadgroup_id, attributes);
   }
 
   // clear all internal data structures
