@@ -24,47 +24,13 @@ namespace preemptive_executor
         }
     }
 
+    PreemptiveExecutor::~PreemptiveExecutor() {};
+
     void PreemptiveExecutor::spawn_worker_groups() {
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& thread_group : thread_groups){
             thread_group_id_worker_map.emplace(thread_group.tg_id, std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads));
-        }
-    }
-
-    void PreemptiveExecutor::wait_for_work(std::chrono::nanoseconds timeout)
-    {
-        //TODO: @viraj add remove_null_handles() to wait_for_work() 
-
-        using rclcpp::exceptions::throw_from_rcl_error;
-        TRACEPOINT(rclcpp_executor_wait_for_work, timeout.count());
-
-        // NOTE: do not remove based on cb groups (this is a major deviation from the default)
-        //          We won't resize the waitset- since we disallow updating the entity set, recollecting is not required
-
-        {
-            std::lock_guard<std::mutex> guard(mutex_);
-
-            // clear wait set
-            rcl_ret_t ret = rcl_wait_set_clear(&wait_set_);
-            if (ret != RCL_RET_OK) {
-                throw_from_rcl_error(ret, "Couldn't clear wait set");
-            }
-
-            // add handles to wait on
-            if (!memory_strategy_->add_handles_to_wait_set(&wait_set_)) {
-                throw std::runtime_error("Couldn't fill wait set");
-            }
-        }
-        
-        rcl_ret_t status = rcl_wait(&wait_set_, std::chrono::duration_cast<std::chrono::nanoseconds>(timeout).count());
-
-        if (status == RCL_RET_WAIT_SET_EMPTY) {
-            RCUTILS_LOG_WARN_NAMED(
-                "rclcpp",
-                "empty wait set received in rcl_wait(). This should never happen.");
-        } else if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
-            throw_from_rcl_error(status, "rcl_wait() failed");
         }
     }
 
@@ -146,14 +112,15 @@ namespace preemptive_executor
     }
 
     void PreemptiveExecutor::spin() {
-        // TODO: Init wait set, collect entities
+        if (spinning.exchange(true)) {
+            throw std::runtime_error("spin_some() called while already spinning");
+        }
+        RCPPUTILS_SCOPE_EXIT(this->spinning.store(false); );
 
         spawn_worker_groups();
 
         //runs a while loop that calls wait for work
         while(rclcpp::ok(context_) && spinning.load()) {
-            // TODO: Add a check for entity recollection. We don't support it, so throw if that state changes.
-
             wait_for_work(std::chrono::nanoseconds(-1));
 
             populate_ready_queues();
