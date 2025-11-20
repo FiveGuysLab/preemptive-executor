@@ -30,6 +30,7 @@ set(${PROJECT_NAME}_SRCS
   src/bundled_subscription.cpp
   src/yaml_parser.cpp
   src/callback_registry.cpp
+  src/worker_group.cpp
 )
 
 add_library(${PROJECT_NAME} ${${PROJECT_NAME}_SRCS})

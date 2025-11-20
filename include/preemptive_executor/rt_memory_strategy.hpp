@@ -18,6 +18,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <vector>
 
 #include "rcl/allocator.h"
 #include "rcl/wait.h"
@@ -25,6 +26,8 @@
 #include "rclcpp/any_executable.hpp"
 #include "rclcpp/macros.hpp"
 #include "rclcpp/node_interfaces/node_base_interface.hpp"
+#include "rclcpp/subscription_base.hpp"
+#include "rclcpp/timer.hpp"
 #include "rclcpp/visibility_control.hpp"
 #include "rclcpp/waitable.hpp"
 #include "rclcpp/memory_strategy.hpp"
@@ -50,7 +53,10 @@ public:
 
   virtual ~RTMemoryStrategy() = default;
 
-  // TODO: Additional method declarations can be added below this
+  virtual void take_ready_handles(
+    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
+    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions,
+    std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) = 0;
 };
 
 }  // namespace memory_strategy
