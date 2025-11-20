@@ -8,6 +8,9 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Enable compile commands export for LSP support
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic -Wnon-virtual-dtor -Woverloaded-virtual)
 endif()
@@ -19,11 +22,14 @@ find_package(rcl REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(Threads REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 set(${PROJECT_NAME}_SRCS
   src/preemptive_executor.cpp
   src/bundled_timer.cpp
   src/bundled_subscription.cpp
+  src/yaml_parser.cpp
+  src/callback_registry.cpp
   src/worker_group.cpp
 )
 
@@ -35,6 +41,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp::rclcpp
   rcl::rcl
   Threads::Threads
+  yaml-cpp
 )
 
 install(
