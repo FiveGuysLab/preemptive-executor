@@ -113,8 +113,8 @@ TimingExport CallbackRegistry::export_timing_information() {
   for (const auto& pair : threadgroup_callback_map_) {
     const auto& threadgroup_info = pair.second;
     ThreadGroupAttributes attributes(threadgroup_info.threadgroup_id, threadgroup_info.num_threads,
-                                    threadgroup_info.fixed_priority);
-    (*timing_export.threadgroup_attributes)[threadgroup_info.threadgroup_id] = attributes;
+                                    threadgroup_info.fixed_priority, threadgroup_info.is_mutex_group);
+    (*timing_export.threadgroup_attributes).emplace(threadgroup_info.threadgroup_id, attributes);
   }
 
   // clear all internal data structures
@@ -161,8 +161,10 @@ void CallbackRegistry::recursive_callback_traversal(const std::string& callback_
 
     if (threadgroup_id == 0) {
       threadgroup_id = new_threadgroup_id;
-      threadgroup_adjacency_list_[prev_threadgroup_id].outgoing.insert(new_threadgroup_id);
-      threadgroup_adjacency_list_[new_threadgroup_id].incoming.insert(prev_threadgroup_id);
+      if (prev_threadgroup_id != 0) {
+        threadgroup_adjacency_list_[prev_threadgroup_id].outgoing.insert(new_threadgroup_id);
+        threadgroup_adjacency_list_[new_threadgroup_id].incoming.insert(prev_threadgroup_id);
+      }
     }
   }
 
@@ -218,8 +220,10 @@ void CallbackRegistry::register_callback_entity(const CallbackEntity& entity, rc
                                                 rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node) {
   const auto entity_it = pre_registered_names_.find(entity);
   if (entity_it == pre_registered_names_.end()) {
-    throw std::runtime_error("Callback not pre-registered");
+    std::cout << "Callback entity not pre-registered" << " Type=" << static_cast<int>(entity.get_type()) << std::endl;
+    return;
   }
+  std::cout << "Registering callback entity with name: " << entity_it->second << std::endl;
 
   const std::string callback_name = entity_it->second;
   callback_map_.emplace(callback_name, CallbackInfo{entity, group, node, callback_name});

@@ -82,6 +82,7 @@ class CallbackEntity {
 // Hash function for CallbackEntity to use as map key
 struct CallbackEntityHash {
   std::size_t operator()(const CallbackEntity& entity) const {
+    std::cout << "Hashing entity at raw pointer: " << entity.get_raw_pointer() << std::endl;
     return std::hash<const void*>{}(entity.get_raw_pointer());
   }
 };
@@ -116,7 +117,7 @@ class CallbackRegistry {
  public:
   using WeakCallbackGroupsToNodesMap = rclcpp::memory_strategy::MemoryStrategy::WeakCallbackGroupsToNodesMap;
 
-  ~CallbackRegistry();
+  ~CallbackRegistry() = default;
 
   static CallbackRegistry& get_instance(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
                                         const std::unordered_map<std::string, userChain>& user_chains) {

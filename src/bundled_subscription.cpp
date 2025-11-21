@@ -30,6 +30,11 @@ namespace preemptive_executor
         message_info.get_rmw_message_info().from_intra_process = false;
     }
 
+    void* BundledSubscription::get_raw_handle() const
+    {
+        return subscription.get();
+    }
+
     LoanedMsgSubscription::LoanedMsgSubscription(rclcpp::SubscriptionBase::SharedPtr subscription_, Priv&) : BundledSubscription(subscription_) {}
 
     std::unique_ptr<BundledSubscription> LoanedMsgSubscription::take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
@@ -168,7 +173,7 @@ namespace preemptive_executor
 
     std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        if (subscription->is_serialized())
+        if (!subscription->is_serialized())
         {
             if (subscription->can_loan_messages())
             {
