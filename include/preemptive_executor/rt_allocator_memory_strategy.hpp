@@ -31,558 +31,505 @@
 
 #include "rmw/types.h"
 
-namespace preemptive_executor
-{
-namespace memory_strategies
-{
-namespace allocator_memory_strategy
-{
+namespace preemptive_executor {
+    namespace memory_strategies {
+        namespace allocator_memory_strategy {
 
-/// Delegate for handling memory allocations while the Executor is executing.
-/**
- * By default, the memory strategy dynamically allocates memory for structures that come in from
- * the rmw implementation after the executor waits for work, based on the number of entities that
- * come through.
- */
-template<typename Alloc = std::allocator<void>>
-class RTAllocatorMemoryStrategy : public memory_strategy::RTMemoryStrategy
-{
-public:
-  RCLCPP_SMART_PTR_DEFINITIONS(RTAllocatorMemoryStrategy<Alloc>)
+            /// Delegate for handling memory allocations while the Executor is executing.
+            /**
+             * By default, the memory strategy dynamically allocates memory for structures that come in from
+             * the rmw implementation after the executor waits for work, based on the number of entities that
+             * come through.
+             */
+            template <typename Alloc = std::allocator<void>>
+            class RTAllocatorMemoryStrategy : public memory_strategy::RTMemoryStrategy {
+              public:
+                RCLCPP_SMART_PTR_DEFINITIONS(RTAllocatorMemoryStrategy<Alloc>)
 
-  using VoidAllocTraits = typename rclcpp::allocator::AllocRebind<void *, Alloc>;
-  using VoidAlloc = typename VoidAllocTraits::allocator_type;
+                using VoidAllocTraits = typename rclcpp::allocator::AllocRebind<void*, Alloc>;
+                using VoidAlloc = typename VoidAllocTraits::allocator_type;
 
-  explicit RTAllocatorMemoryStrategy(std::shared_ptr<Alloc> allocator)
-  {
-    allocator_ = std::make_shared<VoidAlloc>(*allocator.get());
-  }
+                explicit RTAllocatorMemoryStrategy(std::shared_ptr<Alloc> allocator) {
+                    allocator_ = std::make_shared<VoidAlloc>(*allocator.get());
+                }
 
-  RTAllocatorMemoryStrategy()
-  {
-    allocator_ = std::make_shared<VoidAlloc>();
-  }
+                RTAllocatorMemoryStrategy() {
+                    allocator_ = std::make_shared<VoidAlloc>();
+                }
 
-  void add_guard_condition(const rclcpp::GuardCondition & guard_condition) override
-  {
-    for (const auto & existing_guard_condition : guard_conditions_) {
-      if (existing_guard_condition == &guard_condition) {
-        return;
-      }
-    }
-    guard_conditions_.push_back(&guard_condition);
-  }
+                void add_guard_condition(const rclcpp::GuardCondition& guard_condition) override {
+                    for (const auto& existing_guard_condition : guard_conditions_) {
+                        if (existing_guard_condition == &guard_condition) {
+                            return;
+                        }
+                    }
+                    guard_conditions_.push_back(&guard_condition);
+                }
 
-  void remove_guard_condition(const rclcpp::GuardCondition * guard_condition) override
-  {
-    for (auto it = guard_conditions_.begin(); it != guard_conditions_.end(); ++it) {
-      if (*it == guard_condition) {
-        guard_conditions_.erase(it);
-        break;
-      }
-    }
-  }
+                void remove_guard_condition(const rclcpp::GuardCondition* guard_condition) override {
+                    for (auto it = guard_conditions_.begin(); it != guard_conditions_.end(); ++it) {
+                        if (*it == guard_condition) {
+                            guard_conditions_.erase(it);
+                            break;
+                        }
+                    }
+                }
 
-  void clear_handles() override
-  {
-    subscription_handles_.clear();
-    service_handles_.clear();
-    client_handles_.clear();
-    timer_handles_.clear();
-    waitable_handles_.clear();
-  }
+                void clear_handles() override {
+                    subscription_handles_.clear();
+                    service_handles_.clear();
+                    client_handles_.clear();
+                    timer_handles_.clear();
+                    waitable_handles_.clear();
+                }
 
-  void remove_null_handles(rcl_wait_set_t * wait_set) override
-  {
-    // TODO(jacobperron): Check if wait set sizes are what we expect them to be?
-    //                    e.g. wait_set->size_of_clients == client_handles_.size()
+                void remove_null_handles(rcl_wait_set_t* wait_set) override {
+                    // TODO(jacobperron): Check if wait set sizes are what we expect them to be?
+                    //                    e.g. wait_set->size_of_clients == client_handles_.size()
 
-    // Important to use subscription_handles_.size() instead of wait set's size since
-    // there may be more subscriptions in the wait set due to Waitables added to the end.
-    // The same logic applies for other entities.
-    for (size_t i = 0; i < subscription_handles_.size(); ++i) {
-      if (!wait_set->subscriptions[i]) {
-        subscription_handles_[i].reset();
-      }
-    }
-    for (size_t i = 0; i < service_handles_.size(); ++i) {
-      if (!wait_set->services[i]) {
-        service_handles_[i].reset();
-      }
-    }
-    for (size_t i = 0; i < client_handles_.size(); ++i) {
-      if (!wait_set->clients[i]) {
-        client_handles_[i].reset();
-      }
-    }
-    for (size_t i = 0; i < timer_handles_.size(); ++i) {
-      if (!wait_set->timers[i]) {
-        timer_handles_[i].reset();
-      }
-    }
-    for (size_t i = 0; i < waitable_handles_.size(); ++i) {
-      if (!waitable_handles_[i]->is_ready(wait_set)) {
-        waitable_handles_[i].reset();
-      }
-    }
+                    // Important to use subscription_handles_.size() instead of wait set's size since
+                    // there may be more subscriptions in the wait set due to Waitables added to the end.
+                    // The same logic applies for other entities.
+                    for (size_t i = 0; i < subscription_handles_.size(); ++i) {
+                        if (!wait_set->subscriptions[i]) {
+                            subscription_handles_[i].reset();
+                        }
+                    }
+                    for (size_t i = 0; i < service_handles_.size(); ++i) {
+                        if (!wait_set->services[i]) {
+                            service_handles_[i].reset();
+                        }
+                    }
+                    for (size_t i = 0; i < client_handles_.size(); ++i) {
+                        if (!wait_set->clients[i]) {
+                            client_handles_[i].reset();
+                        }
+                    }
+                    for (size_t i = 0; i < timer_handles_.size(); ++i) {
+                        if (!wait_set->timers[i]) {
+                            timer_handles_[i].reset();
+                        }
+                    }
+                    for (size_t i = 0; i < waitable_handles_.size(); ++i) {
+                        if (!waitable_handles_[i]->is_ready(wait_set)) {
+                            waitable_handles_[i].reset();
+                        }
+                    }
 
-    subscription_handles_.erase(
-      std::remove(subscription_handles_.begin(), subscription_handles_.end(), nullptr),
-      subscription_handles_.end()
-    );
+                    subscription_handles_.erase(
+                        std::remove(subscription_handles_.begin(), subscription_handles_.end(), nullptr),
+                        subscription_handles_.end());
 
-    service_handles_.erase(
-      std::remove(service_handles_.begin(), service_handles_.end(), nullptr),
-      service_handles_.end()
-    );
+                    service_handles_.erase(std::remove(service_handles_.begin(), service_handles_.end(), nullptr),
+                                           service_handles_.end());
 
-    client_handles_.erase(
-      std::remove(client_handles_.begin(), client_handles_.end(), nullptr),
-      client_handles_.end()
-    );
+                    client_handles_.erase(std::remove(client_handles_.begin(), client_handles_.end(), nullptr),
+                                          client_handles_.end());
 
-    timer_handles_.erase(
-      std::remove(timer_handles_.begin(), timer_handles_.end(), nullptr),
-      timer_handles_.end()
-    );
+                    timer_handles_.erase(std::remove(timer_handles_.begin(), timer_handles_.end(), nullptr),
+                                         timer_handles_.end());
 
-    waitable_handles_.erase(
-      std::remove(waitable_handles_.begin(), waitable_handles_.end(), nullptr),
-      waitable_handles_.end()
-    );
-  }
+                    waitable_handles_.erase(std::remove(waitable_handles_.begin(), waitable_handles_.end(), nullptr),
+                                            waitable_handles_.end());
+                }
 
-  bool collect_entities(const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    bool has_invalid_weak_groups_or_nodes = false;
-    for (const auto & pair : weak_groups_to_nodes) {
-      auto group = pair.first.lock();
-      auto node = pair.second.lock();
-      if (group == nullptr || node == nullptr) {
-        has_invalid_weak_groups_or_nodes = true;
-        continue;
-      }
-      if (!group || !group->can_be_taken_from().load()) {
-        continue;
-      }
+                bool collect_entities(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    bool has_invalid_weak_groups_or_nodes = false;
+                    for (const auto& pair : weak_groups_to_nodes) {
+                        auto group = pair.first.lock();
+                        auto node = pair.second.lock();
+                        if (group == nullptr || node == nullptr) {
+                            has_invalid_weak_groups_or_nodes = true;
+                            continue;
+                        }
+                        if (!group || !group->can_be_taken_from().load()) {
+                            continue;
+                        }
 
-      group->collect_all_ptrs(
-        [this](const rclcpp::SubscriptionBase::SharedPtr & subscription) {
-          subscription_handles_.push_back(subscription->get_subscription_handle());
-        },
-        [this](const rclcpp::ServiceBase::SharedPtr & service) {
-          service_handles_.push_back(service->get_service_handle());
-        },
-        [this](const rclcpp::ClientBase::SharedPtr & client) {
-          client_handles_.push_back(client->get_client_handle());
-        },
-        [this](const rclcpp::TimerBase::SharedPtr & timer) {
-          timer_handles_.push_back(timer->get_timer_handle());
-        },
-        [this](const rclcpp::Waitable::SharedPtr & waitable) {
-          waitable_handles_.push_back(waitable);
-        });
-    }
+                        group->collect_all_ptrs(
+                            [this](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
+                                subscription_handles_.push_back(subscription->get_subscription_handle());
+                            },
+                            [this](const rclcpp::ServiceBase::SharedPtr& service) {
+                                service_handles_.push_back(service->get_service_handle());
+                            },
+                            [this](const rclcpp::ClientBase::SharedPtr& client) {
+                                client_handles_.push_back(client->get_client_handle());
+                            },
+                            [this](const rclcpp::TimerBase::SharedPtr& timer) {
+                                timer_handles_.push_back(timer->get_timer_handle());
+                            },
+                            [this](const rclcpp::Waitable::SharedPtr& waitable) {
+                                waitable_handles_.push_back(waitable);
+                            });
+                    }
 
-    return has_invalid_weak_groups_or_nodes;
-  }
+                    return has_invalid_weak_groups_or_nodes;
+                }
 
-  void add_waitable_handle(const rclcpp::Waitable::SharedPtr & waitable) override
-  {
-    if (nullptr == waitable) {
-      throw std::runtime_error("waitable object unexpectedly nullptr");
-    }
-    waitable_handles_.push_back(waitable);
-  }
+                void add_waitable_handle(const rclcpp::Waitable::SharedPtr& waitable) override {
+                    if (nullptr == waitable) {
+                        throw std::runtime_error("waitable object unexpectedly nullptr");
+                    }
+                    waitable_handles_.push_back(waitable);
+                }
 
-  bool add_handles_to_wait_set(rcl_wait_set_t * wait_set) override
-  {
-    for (const std::shared_ptr<const rcl_subscription_t> & subscription : subscription_handles_) {
-      if (rcl_wait_set_add_subscription(wait_set, subscription.get(), NULL) != RCL_RET_OK) {
-        RCUTILS_LOG_ERROR_NAMED(
-          "rclcpp",
-          "Couldn't add subscription to wait set: %s", rcl_get_error_string().str);
-        return false;
-      }
-    }
+                bool add_handles_to_wait_set(rcl_wait_set_t* wait_set) override {
+                    for (const std::shared_ptr<const rcl_subscription_t>& subscription : subscription_handles_) {
+                        if (rcl_wait_set_add_subscription(wait_set, subscription.get(), NULL) != RCL_RET_OK) {
+                            RCUTILS_LOG_ERROR_NAMED("rclcpp", "Couldn't add subscription to wait set: %s",
+                                                    rcl_get_error_string().str);
+                            return false;
+                        }
+                    }
 
-    for (const std::shared_ptr<const rcl_client_t> & client : client_handles_) {
-      if (rcl_wait_set_add_client(wait_set, client.get(), NULL) != RCL_RET_OK) {
-        RCUTILS_LOG_ERROR_NAMED(
-          "rclcpp",
-          "Couldn't add client to wait set: %s", rcl_get_error_string().str);
-        return false;
-      }
-    }
+                    for (const std::shared_ptr<const rcl_client_t>& client : client_handles_) {
+                        if (rcl_wait_set_add_client(wait_set, client.get(), NULL) != RCL_RET_OK) {
+                            RCUTILS_LOG_ERROR_NAMED("rclcpp", "Couldn't add client to wait set: %s",
+                                                    rcl_get_error_string().str);
+                            return false;
+                        }
+                    }
 
-    for (const std::shared_ptr<const rcl_service_t> & service : service_handles_) {
-      if (rcl_wait_set_add_service(wait_set, service.get(), NULL) != RCL_RET_OK) {
-        RCUTILS_LOG_ERROR_NAMED(
-          "rclcpp",
-          "Couldn't add service to wait set: %s", rcl_get_error_string().str);
-        return false;
-      }
-    }
+                    for (const std::shared_ptr<const rcl_service_t>& service : service_handles_) {
+                        if (rcl_wait_set_add_service(wait_set, service.get(), NULL) != RCL_RET_OK) {
+                            RCUTILS_LOG_ERROR_NAMED("rclcpp", "Couldn't add service to wait set: %s",
+                                                    rcl_get_error_string().str);
+                            return false;
+                        }
+                    }
 
-    for (const std::shared_ptr<const rcl_timer_t> & timer : timer_handles_) {
-      if (rcl_wait_set_add_timer(wait_set, timer.get(), NULL) != RCL_RET_OK) {
-        RCUTILS_LOG_ERROR_NAMED(
-          "rclcpp",
-          "Couldn't add timer to wait set: %s", rcl_get_error_string().str);
-        return false;
-      }
-    }
+                    for (const std::shared_ptr<const rcl_timer_t>& timer : timer_handles_) {
+                        if (rcl_wait_set_add_timer(wait_set, timer.get(), NULL) != RCL_RET_OK) {
+                            RCUTILS_LOG_ERROR_NAMED("rclcpp", "Couldn't add timer to wait set: %s",
+                                                    rcl_get_error_string().str);
+                            return false;
+                        }
+                    }
 
-    for (auto guard_condition : guard_conditions_) {
-      rclcpp::detail::add_guard_condition_to_rcl_wait_set(*wait_set, *guard_condition);
-    }
+                    for (auto guard_condition : guard_conditions_) {
+                        rclcpp::detail::add_guard_condition_to_rcl_wait_set(*wait_set, *guard_condition);
+                    }
 
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      waitable->add_to_wait_set(wait_set);
-    }
-    return true;
-  }
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        waitable->add_to_wait_set(wait_set);
+                    }
+                    return true;
+                }
 
-  void
-  get_next_subscription(
-    rclcpp::AnyExecutable & any_exec,
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    auto it = subscription_handles_.begin();
-    while (it != subscription_handles_.end()) {
-      auto subscription = get_subscription_by_handle(*it, weak_groups_to_nodes);
-      if (subscription) {
-        // Find the group for this handle and see if it can be serviced
-        auto group = get_group_by_subscription(subscription, weak_groups_to_nodes);
-        if (!group) {
-          // Group was not found, meaning the subscription is not valid...
-          // Remove it from the ready list and continue looking
-          it = subscription_handles_.erase(it);
-          continue;
-        }
-        if (!group->can_be_taken_from().load()) {
-          // Group is mutually exclusive and is being used, so skip it for now
-          // Leave it to be checked next time, but continue searching
-          ++it;
-          continue;
-        }
-        // Otherwise it is safe to set and return the any_exec
-        any_exec.subscription = subscription;
-        any_exec.callback_group = group;
-        any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
-        subscription_handles_.erase(it);
-        return;
-      }
-      // Else, the subscription is no longer valid, remove it and continue
-      it = subscription_handles_.erase(it);
-    }
-  }
+                void get_next_subscription(rclcpp::AnyExecutable& any_exec,
+                                           const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    auto it = subscription_handles_.begin();
+                    while (it != subscription_handles_.end()) {
+                        auto subscription = get_subscription_by_handle(*it, weak_groups_to_nodes);
+                        if (subscription) {
+                            // Find the group for this handle and see if it can be serviced
+                            auto group = get_group_by_subscription(subscription, weak_groups_to_nodes);
+                            if (!group) {
+                                // Group was not found, meaning the subscription is not valid...
+                                // Remove it from the ready list and continue looking
+                                it = subscription_handles_.erase(it);
+                                continue;
+                            }
+                            if (!group->can_be_taken_from().load()) {
+                                // Group is mutually exclusive and is being used, so skip it for now
+                                // Leave it to be checked next time, but continue searching
+                                ++it;
+                                continue;
+                            }
+                            // Otherwise it is safe to set and return the any_exec
+                            any_exec.subscription = subscription;
+                            any_exec.callback_group = group;
+                            any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
+                            subscription_handles_.erase(it);
+                            return;
+                        }
+                        // Else, the subscription is no longer valid, remove it and continue
+                        it = subscription_handles_.erase(it);
+                    }
+                }
 
-  void
-  get_next_service(
-    rclcpp::AnyExecutable & any_exec,
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    auto it = service_handles_.begin();
-    while (it != service_handles_.end()) {
-      auto service = get_service_by_handle(*it, weak_groups_to_nodes);
-      if (service) {
-        // Find the group for this handle and see if it can be serviced
-        auto group = get_group_by_service(service, weak_groups_to_nodes);
-        if (!group) {
-          // Group was not found, meaning the service is not valid...
-          // Remove it from the ready list and continue looking
-          it = service_handles_.erase(it);
-          continue;
-        }
-        if (!group->can_be_taken_from().load()) {
-          // Group is mutually exclusive and is being used, so skip it for now
-          // Leave it to be checked next time, but continue searching
-          ++it;
-          continue;
-        }
-        // Otherwise it is safe to set and return the any_exec
-        any_exec.service = service;
-        any_exec.callback_group = group;
-        any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
-        service_handles_.erase(it);
-        return;
-      }
-      // Else, the service is no longer valid, remove it and continue
-      it = service_handles_.erase(it);
-    }
-  }
+                void get_next_service(rclcpp::AnyExecutable& any_exec,
+                                      const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    auto it = service_handles_.begin();
+                    while (it != service_handles_.end()) {
+                        auto service = get_service_by_handle(*it, weak_groups_to_nodes);
+                        if (service) {
+                            // Find the group for this handle and see if it can be serviced
+                            auto group = get_group_by_service(service, weak_groups_to_nodes);
+                            if (!group) {
+                                // Group was not found, meaning the service is not valid...
+                                // Remove it from the ready list and continue looking
+                                it = service_handles_.erase(it);
+                                continue;
+                            }
+                            if (!group->can_be_taken_from().load()) {
+                                // Group is mutually exclusive and is being used, so skip it for now
+                                // Leave it to be checked next time, but continue searching
+                                ++it;
+                                continue;
+                            }
+                            // Otherwise it is safe to set and return the any_exec
+                            any_exec.service = service;
+                            any_exec.callback_group = group;
+                            any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
+                            service_handles_.erase(it);
+                            return;
+                        }
+                        // Else, the service is no longer valid, remove it and continue
+                        it = service_handles_.erase(it);
+                    }
+                }
 
-  void
-  get_next_client(
-    rclcpp::AnyExecutable & any_exec,
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    auto it = client_handles_.begin();
-    while (it != client_handles_.end()) {
-      auto client = get_client_by_handle(*it, weak_groups_to_nodes);
-      if (client) {
-        // Find the group for this handle and see if it can be serviced
-        auto group = get_group_by_client(client, weak_groups_to_nodes);
-        if (!group) {
-          // Group was not found, meaning the service is not valid...
-          // Remove it from the ready list and continue looking
-          it = client_handles_.erase(it);
-          continue;
-        }
-        if (!group->can_be_taken_from().load()) {
-          // Group is mutually exclusive and is being used, so skip it for now
-          // Leave it to be checked next time, but continue searching
-          ++it;
-          continue;
-        }
-        // Otherwise it is safe to set and return the any_exec
-        any_exec.client = client;
-        any_exec.callback_group = group;
-        any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
-        client_handles_.erase(it);
-        return;
-      }
-      // Else, the service is no longer valid, remove it and continue
-      it = client_handles_.erase(it);
-    }
-  }
+                void get_next_client(rclcpp::AnyExecutable& any_exec,
+                                     const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    auto it = client_handles_.begin();
+                    while (it != client_handles_.end()) {
+                        auto client = get_client_by_handle(*it, weak_groups_to_nodes);
+                        if (client) {
+                            // Find the group for this handle and see if it can be serviced
+                            auto group = get_group_by_client(client, weak_groups_to_nodes);
+                            if (!group) {
+                                // Group was not found, meaning the service is not valid...
+                                // Remove it from the ready list and continue looking
+                                it = client_handles_.erase(it);
+                                continue;
+                            }
+                            if (!group->can_be_taken_from().load()) {
+                                // Group is mutually exclusive and is being used, so skip it for now
+                                // Leave it to be checked next time, but continue searching
+                                ++it;
+                                continue;
+                            }
+                            // Otherwise it is safe to set and return the any_exec
+                            any_exec.client = client;
+                            any_exec.callback_group = group;
+                            any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
+                            client_handles_.erase(it);
+                            return;
+                        }
+                        // Else, the service is no longer valid, remove it and continue
+                        it = client_handles_.erase(it);
+                    }
+                }
 
-  void
-  get_next_timer(
-    rclcpp::AnyExecutable & any_exec,
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    auto it = timer_handles_.begin();
-    while (it != timer_handles_.end()) {
-      auto timer = get_timer_by_handle(*it, weak_groups_to_nodes);
-      if (timer) {
-        // Find the group for this handle and see if it can be serviced
-        auto group = get_group_by_timer(timer, weak_groups_to_nodes);
-        if (!group) {
-          // Group was not found, meaning the timer is not valid...
-          // Remove it from the ready list and continue looking
-          it = timer_handles_.erase(it);
-          continue;
-        }
-        if (!group->can_be_taken_from().load()) {
-          // Group is mutually exclusive and is being used, so skip it for now
-          // Leave it to be checked next time, but continue searching
-          ++it;
-          continue;
-        }
-        if (!timer->call()) {
-          // timer was cancelled, skip it.
-          ++it;
-          continue;
-        }
-        // Otherwise it is safe to set and return the any_exec
-        any_exec.timer = timer;
-        any_exec.callback_group = group;
-        any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
-        timer_handles_.erase(it);
-        return;
-      }
-      // Else, the timer is no longer valid, remove it and continue
-      it = timer_handles_.erase(it);
-    }
-  }
+                void get_next_timer(rclcpp::AnyExecutable& any_exec,
+                                    const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    auto it = timer_handles_.begin();
+                    while (it != timer_handles_.end()) {
+                        auto timer = get_timer_by_handle(*it, weak_groups_to_nodes);
+                        if (timer) {
+                            // Find the group for this handle and see if it can be serviced
+                            auto group = get_group_by_timer(timer, weak_groups_to_nodes);
+                            if (!group) {
+                                // Group was not found, meaning the timer is not valid...
+                                // Remove it from the ready list and continue looking
+                                it = timer_handles_.erase(it);
+                                continue;
+                            }
+                            if (!group->can_be_taken_from().load()) {
+                                // Group is mutually exclusive and is being used, so skip it for now
+                                // Leave it to be checked next time, but continue searching
+                                ++it;
+                                continue;
+                            }
+                            if (!timer->call()) {
+                                // timer was cancelled, skip it.
+                                ++it;
+                                continue;
+                            }
+                            // Otherwise it is safe to set and return the any_exec
+                            any_exec.timer = timer;
+                            any_exec.callback_group = group;
+                            any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
+                            timer_handles_.erase(it);
+                            return;
+                        }
+                        // Else, the timer is no longer valid, remove it and continue
+                        it = timer_handles_.erase(it);
+                    }
+                }
 
-  void
-  get_next_waitable(
-    rclcpp::AnyExecutable & any_exec,
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes) override
-  {
-    auto it = waitable_handles_.begin();
-    while (it != waitable_handles_.end()) {
-      std::shared_ptr<rclcpp::Waitable> & waitable = *it;
-      if (waitable) {
-        // Find the group for this handle and see if it can be serviced
-        auto group = get_group_by_waitable(waitable, weak_groups_to_nodes);
-        if (!group) {
-          // Group was not found, meaning the waitable is not valid...
-          // Remove it from the ready list and continue looking
-          it = waitable_handles_.erase(it);
-          continue;
-        }
-        if (!group->can_be_taken_from().load()) {
-          // Group is mutually exclusive and is being used, so skip it for now
-          // Leave it to be checked next time, but continue searching
-          ++it;
-          continue;
-        }
-        // Otherwise it is safe to set and return the any_exec
-        any_exec.waitable = waitable;
-        any_exec.callback_group = group;
-        any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
-        waitable_handles_.erase(it);
-        return;
-      }
-      // Else, the waitable is no longer valid, remove it and continue
-      it = waitable_handles_.erase(it);
-    }
-  }
+                void get_next_waitable(rclcpp::AnyExecutable& any_exec,
+                                       const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes) override {
+                    auto it = waitable_handles_.begin();
+                    while (it != waitable_handles_.end()) {
+                        std::shared_ptr<rclcpp::Waitable>& waitable = *it;
+                        if (waitable) {
+                            // Find the group for this handle and see if it can be serviced
+                            auto group = get_group_by_waitable(waitable, weak_groups_to_nodes);
+                            if (!group) {
+                                // Group was not found, meaning the waitable is not valid...
+                                // Remove it from the ready list and continue looking
+                                it = waitable_handles_.erase(it);
+                                continue;
+                            }
+                            if (!group->can_be_taken_from().load()) {
+                                // Group is mutually exclusive and is being used, so skip it for now
+                                // Leave it to be checked next time, but continue searching
+                                ++it;
+                                continue;
+                            }
+                            // Otherwise it is safe to set and return the any_exec
+                            any_exec.waitable = waitable;
+                            any_exec.callback_group = group;
+                            any_exec.node_base = get_node_by_group(group, weak_groups_to_nodes);
+                            waitable_handles_.erase(it);
+                            return;
+                        }
+                        // Else, the waitable is no longer valid, remove it and continue
+                        it = waitable_handles_.erase(it);
+                    }
+                }
 
-  rcl_allocator_t get_allocator() override
-  {
-    return rclcpp::allocator::get_rcl_allocator<void *, VoidAlloc>(*allocator_.get());
-  }
+                rcl_allocator_t get_allocator() override {
+                    return rclcpp::allocator::get_rcl_allocator<void*, VoidAlloc>(*allocator_.get());
+                }
 
-  size_t number_of_ready_subscriptions() const override
-  {
-    size_t number_of_subscriptions = subscription_handles_.size();
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_subscriptions += waitable->get_number_of_ready_subscriptions();
-    }
-    return number_of_subscriptions;
-  }
+                size_t number_of_ready_subscriptions() const override {
+                    size_t number_of_subscriptions = subscription_handles_.size();
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_subscriptions += waitable->get_number_of_ready_subscriptions();
+                    }
+                    return number_of_subscriptions;
+                }
 
-  size_t number_of_ready_services() const override
-  {
-    size_t number_of_services = service_handles_.size();
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_services += waitable->get_number_of_ready_services();
-    }
-    return number_of_services;
-  }
+                size_t number_of_ready_services() const override {
+                    size_t number_of_services = service_handles_.size();
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_services += waitable->get_number_of_ready_services();
+                    }
+                    return number_of_services;
+                }
 
-  size_t number_of_ready_events() const override
-  {
-    size_t number_of_events = 0;
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_events += waitable->get_number_of_ready_events();
-    }
-    return number_of_events;
-  }
+                size_t number_of_ready_events() const override {
+                    size_t number_of_events = 0;
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_events += waitable->get_number_of_ready_events();
+                    }
+                    return number_of_events;
+                }
 
-  size_t number_of_ready_clients() const override
-  {
-    size_t number_of_clients = client_handles_.size();
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_clients += waitable->get_number_of_ready_clients();
-    }
-    return number_of_clients;
-  }
+                size_t number_of_ready_clients() const override {
+                    size_t number_of_clients = client_handles_.size();
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_clients += waitable->get_number_of_ready_clients();
+                    }
+                    return number_of_clients;
+                }
 
-  size_t number_of_guard_conditions() const override
-  {
-    size_t number_of_guard_conditions = guard_conditions_.size();
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_guard_conditions += waitable->get_number_of_ready_guard_conditions();
-    }
-    return number_of_guard_conditions;
-  }
+                size_t number_of_guard_conditions() const override {
+                    size_t number_of_guard_conditions = guard_conditions_.size();
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_guard_conditions += waitable->get_number_of_ready_guard_conditions();
+                    }
+                    return number_of_guard_conditions;
+                }
 
-  size_t number_of_ready_timers() const override
-  {
-    size_t number_of_timers = timer_handles_.size();
-    for (const std::shared_ptr<rclcpp::Waitable> & waitable : waitable_handles_) {
-      number_of_timers += waitable->get_number_of_ready_timers();
-    }
-    return number_of_timers;
-  }
+                size_t number_of_ready_timers() const override {
+                    size_t number_of_timers = timer_handles_.size();
+                    for (const std::shared_ptr<rclcpp::Waitable>& waitable : waitable_handles_) {
+                        number_of_timers += waitable->get_number_of_ready_timers();
+                    }
+                    return number_of_timers;
+                }
 
-  size_t number_of_waitables() const override
-  {
-    return waitable_handles_.size();
-  }
+                size_t number_of_waitables() const override {
+                    return waitable_handles_.size();
+                }
 
-  void take_ready_handles(
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
-    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions,
-    std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) override
-  {
-    ready_subscriptions.clear();
-    ready_timers.clear();
+                void take_ready_handles(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
+                                        std::vector<rclcpp::SubscriptionBase::SharedPtr>& ready_subscriptions,
+                                        std::vector<rclcpp::TimerBase::SharedPtr>& ready_timers) override {
+                    ready_subscriptions.clear();
+                    ready_timers.clear();
 
-    if (subscription_handles_.empty() && timer_handles_.empty()) {
-      return;
-    }
+                    if (subscription_handles_.empty() && timer_handles_.empty()) {
+                        return;
+                    }
 
-    std::unordered_set<const rcl_subscription_t *> ready_subscription_handles;
-    ready_subscription_handles.reserve(subscription_handles_.size());
-    for (const auto & handle : subscription_handles_) {
-      if (handle) {
-        ready_subscription_handles.insert(handle.get());
-      }
-    }
+                    std::unordered_set<const rcl_subscription_t*> ready_subscription_handles;
+                    ready_subscription_handles.reserve(subscription_handles_.size());
+                    for (const auto& handle : subscription_handles_) {
+                        if (handle) {
+                            ready_subscription_handles.insert(handle.get());
+                        }
+                    }
 
-    std::unordered_set<const rcl_timer_t *> ready_timer_handles;
-    ready_timer_handles.reserve(timer_handles_.size());
-    for (const auto & handle : timer_handles_) {
-      if (handle) {
-        ready_timer_handles.insert(handle.get());
-      }
-    }
+                    std::unordered_set<const rcl_timer_t*> ready_timer_handles;
+                    ready_timer_handles.reserve(timer_handles_.size());
+                    for (const auto& handle : timer_handles_) {
+                        if (handle) {
+                            ready_timer_handles.insert(handle.get());
+                        }
+                    }
 
-    if (ready_subscription_handles.empty() && ready_timer_handles.empty()) {
-      subscription_handles_.clear();
-      timer_handles_.clear();
-      return;
-    }
+                    if (ready_subscription_handles.empty() && ready_timer_handles.empty()) {
+                        subscription_handles_.clear();
+                        timer_handles_.clear();
+                        return;
+                    }
 
-    for (const auto & pair : weak_groups_to_nodes) {
-      auto group = pair.first.lock();
-      if (!group) {
-        continue;
-      }
+                    for (const auto& pair : weak_groups_to_nodes) {
+                        auto group = pair.first.lock();
+                        if (!group) {
+                            continue;
+                        }
 
-      group->collect_all_ptrs(
-        [&ready_subscription_handles, &ready_subscriptions](
-          const rclcpp::SubscriptionBase::SharedPtr & subscription) {
-          if (ready_subscription_handles.empty()) {
-            return;
-          }
-          auto handle = subscription->get_subscription_handle();
-          if (handle && ready_subscription_handles.erase(handle.get()) > 0) {
-            ready_subscriptions.push_back(subscription);
-          }
-        },
-        [](const rclcpp::ServiceBase::SharedPtr &) {
-          //TODO: gather services once dispatching is implemented.
-        },
-        [](const rclcpp::ClientBase::SharedPtr &) {
-          //TODO: gather clients once dispatching is implemented.
-        },
-        [&ready_timer_handles, &ready_timers](const rclcpp::TimerBase::SharedPtr & timer) {
-          if (ready_timer_handles.empty()) {
-            return;
-          }
-          auto handle = timer->get_timer_handle();
-          if (handle && ready_timer_handles.erase(handle.get()) > 0) {
-            ready_timers.push_back(timer);
-          }
-        },
-        [](const rclcpp::Waitable::SharedPtr &) {
-          //TODO: gather waitables once dispatching is implemented.
-        }
-      );
-    }
+                        group->collect_all_ptrs(
+                            [&ready_subscription_handles,
+                             &ready_subscriptions](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
+                                if (ready_subscription_handles.empty()) {
+                                    return;
+                                }
+                                auto handle = subscription->get_subscription_handle();
+                                if (handle && ready_subscription_handles.erase(handle.get()) > 0) {
+                                    ready_subscriptions.push_back(subscription);
+                                }
+                            },
+                            [](const rclcpp::ServiceBase::SharedPtr&) {
+                                // TODO: gather services once dispatching is implemented.
+                            },
+                            [](const rclcpp::ClientBase::SharedPtr&) {
+                                // TODO: gather clients once dispatching is implemented.
+                            },
+                            [&ready_timer_handles, &ready_timers](const rclcpp::TimerBase::SharedPtr& timer) {
+                                if (ready_timer_handles.empty()) {
+                                    return;
+                                }
+                                auto handle = timer->get_timer_handle();
+                                if (handle && ready_timer_handles.erase(handle.get()) > 0) {
+                                    ready_timers.push_back(timer);
+                                }
+                            },
+                            [](const rclcpp::Waitable::SharedPtr&) {
+                                // TODO: gather waitables once dispatching is implemented.
+                            });
+                    }
 
-    subscription_handles_.clear();
-    timer_handles_.clear();
-  }
+                    subscription_handles_.clear();
+                    timer_handles_.clear();
+                }
 
-private:
-  //TODO: Add get support for services, clients, and waitables 
+              private:
+                // TODO: Add get support for services, clients, and waitables
 
-  template<typename T>
-  using VectorRebind =
-    std::vector<T, typename std::allocator_traits<Alloc>::template rebind_alloc<T>>;
+                template <typename T>
+                using VectorRebind = std::vector<T, typename std::allocator_traits<Alloc>::template rebind_alloc<T>>;
 
-  VectorRebind<const rclcpp::GuardCondition *> guard_conditions_;
+                VectorRebind<const rclcpp::GuardCondition*> guard_conditions_;
 
-  VectorRebind<std::shared_ptr<const rcl_subscription_t>> subscription_handles_;
-  VectorRebind<std::shared_ptr<const rcl_service_t>> service_handles_;
-  VectorRebind<std::shared_ptr<const rcl_client_t>> client_handles_;
-  VectorRebind<std::shared_ptr<const rcl_timer_t>> timer_handles_;
-  VectorRebind<std::shared_ptr<rclcpp::Waitable>> waitable_handles_;
+                VectorRebind<std::shared_ptr<const rcl_subscription_t>> subscription_handles_;
+                VectorRebind<std::shared_ptr<const rcl_service_t>> service_handles_;
+                VectorRebind<std::shared_ptr<const rcl_client_t>> client_handles_;
+                VectorRebind<std::shared_ptr<const rcl_timer_t>> timer_handles_;
+                VectorRebind<std::shared_ptr<rclcpp::Waitable>> waitable_handles_;
 
-  std::shared_ptr<VoidAlloc> allocator_;
-};
+                std::shared_ptr<VoidAlloc> allocator_;
+            };
 
-}  // namespace allocator_memory_strategy
-}  // namespace memory_strategies
-}  // namespace preemptive_executor
+        } // namespace allocator_memory_strategy
+    } // namespace memory_strategies
+} // namespace preemptive_executor
 
-#endif  // PREEMPTIVE_EXECUTOR__STRATEGIES__ALLOCATOR_MEMORY_STRATEGY_HPP_
+#endif // PREEMPTIVE_EXECUTOR__STRATEGIES__ALLOCATOR_MEMORY_STRATEGY_HPP_
