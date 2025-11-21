@@ -25,11 +25,11 @@ namespace preemptive_executor {
         int number_of_threads,
         rclcpp::Context::SharedPtr context,
         const std::atomic_bool& spinning
-    ): num_working(0),
+    ): semaphore(0),
+       num_working(0),
        priority(priority_),
        exec_context(context),
-       exec_spinning(spinning),
-       semaphore(0)
+       exec_spinning(spinning)
     {
         for (int i = 0; i < number_of_threads; i++){
             auto t = std::make_unique<std::thread>([this]() -> void {this->worker_main();});

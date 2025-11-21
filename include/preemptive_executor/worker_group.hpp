@@ -17,9 +17,14 @@ namespace  preemptive_executor {
     constexpr int _SEM_MAX_AT_LEAST = 50000; // TODO: How should we set this value?
 
     class WorkerGroupBase {
+        public:
+            virtual ~WorkerGroupBase();
+            std::counting_semaphore<_SEM_MAX_AT_LEAST> semaphore;
+            virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) = 0;
+            virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) = 0;
+
         protected:
             WorkerGroupBase(int priority_, int number_of_threads, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
-            virtual ~WorkerGroupBase();
 
             virtual void configure_thread(std::thread & thread);
             virtual void update_prio();
@@ -37,11 +42,6 @@ namespace  preemptive_executor {
             std::vector<std::unique_ptr<std::thread>> threads;
             rclcpp::Context::SharedPtr exec_context;
             const std::atomic_bool& exec_spinning;
-
-        public:
-            std::counting_semaphore<_SEM_MAX_AT_LEAST> semaphore;
-            virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) = 0;
-            virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) = 0;
     };
 
     class WorkerGroup : public WorkerGroupBase {
