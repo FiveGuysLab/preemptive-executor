@@ -53,7 +53,7 @@ namespace preemptive_executor
         RCLCPP_DISABLE_COPY(PreemptiveExecutor)
         
         //data structures for preemptive executor
-        std::unordered_map<int, std::unique_ptr<WorkerGroup>>thread_group_id_worker_map; 
+        std::unordered_map<int, std::unique_ptr<WorkerGroupBase>> thread_group_id_worker_map;
         std::unique_ptr<std::unordered_map<void*, int>> callback_handle_to_threadgroup_id;
         std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> thread_groups;
         const std::unordered_map<std::string, userChain>& user_chains;
