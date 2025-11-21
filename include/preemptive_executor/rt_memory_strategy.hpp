@@ -32,34 +32,30 @@
 #include "rclcpp/waitable.hpp"
 #include "rclcpp/memory_strategy.hpp"
 
-namespace preemptive_executor
-{
-namespace memory_strategy
-{
+namespace preemptive_executor {
+    namespace memory_strategy {
 
-/// Delegate for handling memory allocations while the Executor is executing.
-/**
- * By default, the memory strategy dynamically allocates memory for structures that come in from
- * the rmw implementation after the executor waits for work, based on the number of entities that
- * come through.
- */
-class RCLCPP_PUBLIC RTMemoryStrategy : public rclcpp::memory_strategy::MemoryStrategy
-{
-public:
-  RCLCPP_SMART_PTR_DEFINITIONS_NOT_COPYABLE(RTMemoryStrategy)
-  using WeakCallbackGroupsToNodesMap = std::map<rclcpp::CallbackGroup::WeakPtr,
-      rclcpp::node_interfaces::NodeBaseInterface::WeakPtr,
-      std::owner_less<rclcpp::CallbackGroup::WeakPtr>>;
+        /// Delegate for handling memory allocations while the Executor is executing.
+        /**
+         * By default, the memory strategy dynamically allocates memory for structures that come in from
+         * the rmw implementation after the executor waits for work, based on the number of entities that
+         * come through.
+         */
+        class RCLCPP_PUBLIC RTMemoryStrategy : public rclcpp::memory_strategy::MemoryStrategy {
+          public:
+            RCLCPP_SMART_PTR_DEFINITIONS_NOT_COPYABLE(RTMemoryStrategy)
+            using WeakCallbackGroupsToNodesMap =
+                std::map<rclcpp::CallbackGroup::WeakPtr, rclcpp::node_interfaces::NodeBaseInterface::WeakPtr,
+                         std::owner_less<rclcpp::CallbackGroup::WeakPtr>>;
 
-  virtual ~RTMemoryStrategy() = default;
+            virtual ~RTMemoryStrategy() = default;
 
-  virtual void take_ready_handles(
-    const WeakCallbackGroupsToNodesMap & weak_groups_to_nodes,
-    std::vector<rclcpp::SubscriptionBase::SharedPtr> & ready_subscriptions,
-    std::vector<rclcpp::TimerBase::SharedPtr> & ready_timers) = 0;
-};
+            virtual void take_ready_handles(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
+                                            std::vector<rclcpp::SubscriptionBase::SharedPtr>& ready_subscriptions,
+                                            std::vector<rclcpp::TimerBase::SharedPtr>& ready_timers) = 0;
+        };
 
-}  // namespace memory_strategy
-}  // namespace preemptive_executor
+    } // namespace memory_strategy
+} // namespace preemptive_executor
 
-#endif  // PREEMPTIVE_EXECUTOR__MEMORY_STRATEGY_HPP_
+#endif // PREEMPTIVE_EXECUTOR__MEMORY_STRATEGY_HPP_
