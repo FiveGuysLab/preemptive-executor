@@ -77,7 +77,7 @@ ConstructorInitializerAllOnOneLineOrOnePerLine: false
 Cpp11BracedListStyle: true
 FixNamespaceComments: true
 KeepEmptyLinesAtTheStartOfBlocks: false
-NamespaceIndentation: None
+NamespaceIndentation: All
 ReflowComments: true
 SortUsingDeclarations: true
 
