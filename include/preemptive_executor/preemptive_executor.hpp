@@ -25,7 +25,7 @@ namespace preemptive_executor
             bool is_mutex_group;
     };
 
-    class PreemptiveExecutor : protected rclcpp::Executor
+    class PreemptiveExecutor : public rclcpp::Executor
     {
     public:
         RCLCPP_SMART_PTR_DEFINITIONS(PreemptiveExecutor)

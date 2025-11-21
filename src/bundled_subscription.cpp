@@ -173,7 +173,7 @@ namespace preemptive_executor
 
     std::unique_ptr<BundledSubscription> take_and_bundle(rclcpp::SubscriptionBase::SharedPtr subscription)
     {
-        if (subscription->is_serialized())
+        if (!subscription->is_serialized())
         {
             if (subscription->can_loan_messages())
             {

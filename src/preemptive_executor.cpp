@@ -75,6 +75,11 @@ namespace preemptive_executor
                 continue;
             }
 
+            // TODO: There are unidentified subscriptions that show up here that were not in the timing info
+            if (!callback_handle_to_threadgroup_id->contains(bundle->get_raw_handle())) {
+                std::cout << "Warning: Subscription callback handle not found in timing info." << std::endl;
+                continue;
+            }
             auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
             emplace_bundle(target_tgid, std::move(bundle));
         }
