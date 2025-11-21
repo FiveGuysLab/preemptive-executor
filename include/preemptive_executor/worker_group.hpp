@@ -1,7 +1,7 @@
-#include <mutex>
-#include <queue>
+#include <atomic>
 #include <thread>
 #include "bundled_executable.hpp"
+#include "concurrentqueue.h"
 
 #define _SEM_SPIN_NS // TODO: should probably be a config instead
 
@@ -9,12 +9,11 @@ namespace  preemptive_executor {
     constexpr int _SEM_MAX_AT_LEAST = 50000; // TODO: How should we set this value?
 
     class WorkerGroup {
-        class ReadyQueue { // TODO: Lock-free Q needed
-            public:
-                ReadyQueue();
-                std::mutex mutex;
-                std::queue<std::unique_ptr<BundledExecutable>> queue;
-                int num_working;
+        class ReadyQueue {
+          public:
+            ReadyQueue();
+            moodycamel::ConcurrentQueue<std::unique_ptr<BundledExecutable>> queue;
+            std::atomic<int> num_working;
         };
 
         protected:
@@ -34,7 +33,7 @@ namespace  preemptive_executor {
     };
 
     class MutexGroup : public WorkerGroup {
-        bool is_boosted; // protected by ready_queue.mutex
+        std::atomic<bool> is_boosted;
 
         public:
             MutexGroup(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);

@@ -107,9 +107,8 @@ namespace preemptive_executor
             auto & worker_group = worker_it->second;
 
             {
-                std::lock_guard<std::mutex> guard(worker_group->ready_queue.mutex);
-                for (auto & bundle : bundles) {
-                    worker_group->ready_queue.queue.push(std::move(bundle));
+                for (auto& bundle : bundles) {
+                    worker_group->ready_queue.queue.enqueue(std::move(bundle));
                 }
                 worker_group->update_prio();
             }

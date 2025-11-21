@@ -42,11 +42,13 @@ namespace preemptive_executor {
     MutexGroup::~MutexGroup() {}
 
     void MutexGroup::update_prio() {
-        // std::lock_guard<std::mutex> guard(this->ready_queue.mutex);
-
         auto& rq = this->ready_queue;
-        const bool should_boost = (rq.queue.size() + rq.num_working) > 1;
-        if (should_boost == is_boosted) {
+        const int queue_size = static_cast<int>(rq.queue.size_approx());
+        const int working = rq.num_working.load();
+        const bool should_boost = (queue_size + working) > 1;
+        const bool currently_boosted = is_boosted.load();
+
+        if (should_boost == currently_boosted) {
             return;
         }
 
@@ -57,11 +59,11 @@ namespace preemptive_executor {
         auto& t = *(this->threads.front());
         if (should_boost) {
             set_fifo_prio(MAX_FIFO_PRIO, t);
-            is_boosted = true;
+            is_boosted.store(true);
             return;
         }
         set_fifo_prio(this->priority, t);
-        is_boosted = false;
+        is_boosted.store(false);
     }
 
     void WorkerGroup::worker_main() {
@@ -90,18 +92,20 @@ namespace preemptive_executor {
                 break;
             }
 
-            //4: acquire ready queue mutex and 5: pop from ready queue
+            // 4: pop from ready queue (lock-free)
+            //  try_dequeue atomically removes an element from the queue and moves it into exec
+            //  This is equivalent to the original: swap(exec, queue.front()) + queue.pop()
             std::unique_ptr<BundledExecutable> exec = nullptr;
             {
                 auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-
-                if (rq.queue.empty() || rq.queue.front() == nullptr) {
+                // try_dequeue returns false if queue is empty, and doesn't modify exec in that case
+                if (!rq.queue.try_dequeue(exec)) {
                     throw std::runtime_error("Ready Q state invalid");
                 }
-
-                std::swap(exec, rq.queue.front());
-                rq.queue.pop();
+                // If try_dequeue succeeded, exec should be non-null, but check for safety
+                if (exec == nullptr) {
+                    throw std::runtime_error("Ready Q state invalid");
+                }
                 rq.num_working++;
             }
 
@@ -110,7 +114,6 @@ namespace preemptive_executor {
 
             {
                 auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
                 rq.num_working--;
                 // Post-run possible unboost
                 this->update_prio();
