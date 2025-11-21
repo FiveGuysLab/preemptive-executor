@@ -3,8 +3,6 @@
 #include <thread>
 #include "bundled_executable.hpp"
 
-#define _SEM_SPIN_NS // TODO: should probably be a config instead
-
 namespace  preemptive_executor {
     constexpr int _SEM_MAX_AT_LEAST = 50000; // TODO: How should we set this value?
 

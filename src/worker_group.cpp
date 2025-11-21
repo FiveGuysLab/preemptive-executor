@@ -68,9 +68,17 @@ namespace preemptive_executor {
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
-        const auto spin_period = std::chrono::nanoseconds(_SEM_SPIN_NS);
+        auto spin_period = std::chrono::nanoseconds(0);
+        bool spin_period_updated = false;
 
         while (true) {
+            if (!spin_period_updated) {
+                auto calculated_ns = PreemptiveExecutor::SEM_SPIN_NS.load();
+                if (calculated_ns > 0) {
+                    spin_period = std::chrono::nanoseconds(calculated_ns);
+                    spin_period_updated = true;
+                }
+            }
             //3: wait on worker group semaphore
             const auto spin_until = std::chrono::steady_clock::now() + spin_period;
             auto acquired = false;
