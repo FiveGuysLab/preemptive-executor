@@ -34,11 +34,13 @@ namespace preemptive_executor
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
         for(auto& pair : (*thread_groups)){
             auto& thread_group = pair.second;
-            std::unique_ptr<WorkerGroup> wg = nullptr;
+            std::unique_ptr<WorkerGroupBase> wg = nullptr;
             if (thread_group.is_mutex_group) {
                 wg = std::make_unique<MutexGroup>(thread_group.priority, context_, spinning);
-            } else {
+            } else if (thread_group.priority > 0) {
                 wg = std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads, context_, spinning);
+            } else {
+                wg = std::make_unique<NonPrioWorkerGroup>(context_, spinning, thread_group.number_of_threads);
             }
             thread_group_id_worker_map.emplace(thread_group.tg_id, std::move(wg));
         }
@@ -105,15 +107,11 @@ namespace preemptive_executor
                     " when dispatching rexady bundles");
             }
             auto & worker_group = worker_it->second;
-
-            auto ok = worker_group->ready_queue.queue.enqueue_bulk(std::make_move_iterator(bundles.begin()), bundles.size());
-            if (!ok) {
-                throw std::runtime_error("Failed to enqueue ready bundles to worker group (out of memory) " + std::to_string(tgid));
+            auto scheduled = worker_group->push_ready_executables(bundles);
+            if (scheduled == 0) {
+                continue;
             }
-
-            worker_group->ready_queue.num_pending.fetch_add(static_cast<int>(bundles.size()));
-            worker_group->update_prio();
-            worker_group->semaphore.release(static_cast<std::ptrdiff_t>(bundles.size()));
+            worker_group->semaphore.release(static_cast<std::ptrdiff_t>(scheduled));
         }
 
         // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.
