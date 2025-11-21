@@ -1,29 +1,36 @@
 #include "preemptive_executor/preemptive_executor.hpp"
 
+#include <chrono>
+#include <pthread.h>
+#include <sched.h>
+#include <stdexcept>
+
 void set_fifo_prio(int priority, std::thread& t){
     const auto param = sched_param{priority};
     pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
 }
 
 namespace preemptive_executor {
-    WorkerGroup::ReadyQueue::ReadyQueue(): num_working(0) {}
 
-    WorkerGroup::WorkerGroup(
+    WorkerGroupBase::WorkerGroupBase(
         int priority_,
         int number_of_threads,
         rclcpp::Context::SharedPtr context,
         const std::atomic_bool& spinning
-    ): priority(priority_), exec_context(context), exec_spinning(spinning), semaphore(0)
+    ): semaphore(0),
+       num_working(0),
+       priority(priority_),
+       exec_context(context),
+       exec_spinning(spinning)
     {
         for (int i = 0; i < number_of_threads; i++){
-            //spawn number_of_threads amount of threads and populate one worker group per thread
             auto t = std::make_unique<std::thread>([this]() -> void {this->worker_main();});
-            set_fifo_prio(this->priority, *t);
+            configure_thread(*t);
             this->threads.push_back(std::move(t));
         }
     }
 
-    WorkerGroup::~WorkerGroup() {
+    WorkerGroupBase::~WorkerGroupBase() {
         this->semaphore.release(this->threads.size());
 
         for (auto& t : this->threads) {
@@ -31,10 +38,157 @@ namespace preemptive_executor {
         }
     }
 
+    void WorkerGroupBase::configure_thread(std::thread &) {}
+
+    void WorkerGroupBase::update_prio() {}
+
+    size_t WorkerGroupBase::working_count_locked() const {
+        std::lock_guard<std::mutex> guard(this->ready_executables_mutex);
+        return num_working;
+    }
+
+    void WorkerGroupBase::on_executable_complete() {
+        {
+            std::lock_guard<std::mutex> guard(this->ready_executables_mutex);
+            if (this->num_working == 0) {
+                throw std::runtime_error("WorkerGroupBase num_working underflow");
+            }
+            this->num_working--;
+        }
+        this->after_work_completed();
+    }
+
+    WorkerGroup::ReadyQueue::ReadyQueue() {}
+
+    NonPrioWorkerGroup::ReadyVector::ReadyVector() {}
+
+    WorkerGroup::WorkerGroup(
+        int priority_,
+        int number_of_threads,
+        rclcpp::Context::SharedPtr context,
+        const std::atomic_bool& spinning
+    ): WorkerGroupBase(priority_, number_of_threads, context, spinning) {}
+
+    WorkerGroup::~WorkerGroup() {}
+
     void WorkerGroup::update_prio() {}
 
+    std::unique_ptr<BundledExecutable> WorkerGroup::take_next_ready_executable() {
+        std::scoped_lock lock(this->ready_queue.mutex, this->ready_executables_mutex);
+        if (this->ready_queue.queue.empty() || this->ready_queue.queue.front() == nullptr) {
+            throw std::runtime_error("Ready queue state invalid");
+        }
+        auto exec = std::move(this->ready_queue.queue.front());
+        this->ready_queue.queue.pop();
+        this->num_working++;
+        return exec;
+    }
+
+    size_t WorkerGroup::push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) {
+        size_t pushed = 0;
+        {
+            std::scoped_lock lock(this->ready_queue.mutex, this->ready_executables_mutex);
+            for (auto & bundle : bundles) {
+                if (!bundle) {
+                    continue;
+                }
+                this->ready_queue.queue.push(std::move(bundle));
+                pushed++;
+            }
+        }
+        bundles.clear();
+        if (pushed > 0) {
+            this->update_prio();
+        }
+        return pushed;
+    }
+
+    void WorkerGroup::push_ready_executable(std::unique_ptr<BundledExecutable> exec) {
+        if (!exec) {
+            return;
+        }
+        {
+            std::scoped_lock lock(this->ready_queue.mutex, this->ready_executables_mutex);
+            this->ready_queue.queue.push(std::move(exec));
+        }
+        this->update_prio();
+    }
+
+    size_t WorkerGroup::pending_executable_count() const {
+        return this->ready_queue.queue.size();
+    }
+
+    void WorkerGroup::configure_thread(std::thread & thread) {
+        set_fifo_prio(this->priority, thread);
+    }
+
+    void WorkerGroup::after_work_completed() {
+        this->update_prio();
+    }
+
+    NonPrioWorkerGroup::NonPrioWorkerGroup(
+        rclcpp::Context::SharedPtr context,
+        const std::atomic_bool& spinning,
+        int number_of_threads
+    ): WorkerGroupBase(0, number_of_threads, context, spinning) {}
+
+    NonPrioWorkerGroup::~NonPrioWorkerGroup() {}
+
+    void NonPrioWorkerGroup::configure_thread(std::thread &) {}
+
+    std::unique_ptr<BundledExecutable> NonPrioWorkerGroup::take_next_ready_executable() {
+        std::scoped_lock lock(this->ready_vector.mutex, this->ready_executables_mutex);
+        if (this->ready_vector.items.empty() || !this->ready_vector.items.back()) {
+            throw std::runtime_error("Ready executable state invalid");
+        }
+        auto exec = std::move(this->ready_vector.items.back());
+        this->ready_vector.items.pop_back();
+        this->num_working++;
+        return exec;
+    }
+
+    size_t NonPrioWorkerGroup::push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) {
+        size_t pushed = 0;
+        {
+            std::scoped_lock lock(this->ready_vector.mutex, this->ready_executables_mutex);
+            for (auto & bundle : bundles) {
+                if (!bundle) {
+                    continue;
+                }
+                this->ready_vector.items.push_back(std::move(bundle));
+                pushed++;
+            }
+        }
+        bundles.clear();
+        if (pushed > 0) {
+            this->update_prio();
+        }
+        return pushed;
+    }
+
+    void NonPrioWorkerGroup::push_ready_executable(std::unique_ptr<BundledExecutable> exec) {
+        if (!exec) {
+            return;
+        }
+        {
+            std::scoped_lock lock(this->ready_vector.mutex, this->ready_executables_mutex);
+            this->ready_vector.items.push_back(std::move(exec));
+        }
+        this->update_prio();
+    }
+
+    size_t NonPrioWorkerGroup::pending_executable_count() const {
+        return this->ready_vector.items.size();
+    }
+
+    void NonPrioWorkerGroup::update_prio() {}
+
+    void NonPrioWorkerGroup::after_work_completed() {
+        this->update_prio();
+    }
+
     MutexGroup::MutexGroup(
-        int priority_, 
+        int priority_,
         rclcpp::Context::SharedPtr context,
         const std::atomic_bool& spinning
     ): WorkerGroup(priority_, 1, context, spinning), is_boosted(false) {}
@@ -42,12 +196,14 @@ namespace preemptive_executor {
     MutexGroup::~MutexGroup() {}
 
     void MutexGroup::update_prio() {
-        // std::lock_guard<std::mutex> guard(this->ready_queue.mutex);
-
-        auto& rq = this->ready_queue;
-        const bool should_boost = (rq.queue.size() + rq.num_working) > 1;
-        if (should_boost == is_boosted) {
-            return;
+        bool should_boost = false;
+        {
+            std::scoped_lock lock(this->ready_queue.mutex, this->ready_executables_mutex);
+            should_boost = (this->ready_queue.queue.size() + this->num_working) > 1;
+            if (should_boost == is_boosted) {
+                return;
+            }
+            is_boosted = should_boost;
         }
 
         if (this->threads.size() != 1) {
@@ -57,14 +213,12 @@ namespace preemptive_executor {
         auto& t = *(this->threads.front());
         if (should_boost) {
             set_fifo_prio(MAX_FIFO_PRIO, t);
-            is_boosted = true;
             return;
         }
         set_fifo_prio(this->priority, t);
-        is_boosted = false;
     }
 
-    void WorkerGroup::worker_main() {
+    void WorkerGroupBase::worker_main() {
 
         //1: set timing policy // NOTE: Handled by dispatcher
         //2: register with thread group // NOTE: Registration handled by dispatcher
@@ -90,31 +244,9 @@ namespace preemptive_executor {
                 break;
             }
 
-            //4: acquire ready queue mutex and 5: pop from ready queue
-            std::unique_ptr<BundledExecutable> exec = nullptr;
-            {
-                auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-
-                if (rq.queue.empty() || rq.queue.front() == nullptr) {
-                    throw std::runtime_error("Ready Q state invalid");
-                }
-
-                std::swap(exec, rq.queue.front());
-                rq.queue.pop();
-                rq.num_working++;
-            }
-
-            //7: execute executable (placeholder; actual execution integrates with executor run loop)
+            auto exec = this->take_next_ready_executable();
             exec->run();
-
-            {
-                auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-                rq.num_working--;
-                // Post-run possible unboost
-                this->update_prio();
-            }
+            this->on_executable_complete();
         }
     }
 }
