@@ -13,7 +13,7 @@ namespace  preemptive_executor {
           public:
             ReadyQueue();
             moodycamel::ConcurrentQueue<std::unique_ptr<BundledExecutable>> queue;
-            std::atomic<int> num_working;
+            std::atomic<int> num_pending;
         };
 
         protected:
@@ -28,7 +28,6 @@ namespace  preemptive_executor {
             virtual ~WorkerGroup();
             std::counting_semaphore<_SEM_MAX_AT_LEAST> semaphore;
             ReadyQueue ready_queue;
-            // Caller must first acquire the readyQ mutex
             virtual void update_prio();
     };
 
@@ -38,7 +37,6 @@ namespace  preemptive_executor {
         public:
             MutexGroup(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
             virtual ~MutexGroup();
-            // Caller must first acquire the readyQ mutex
             virtual void update_prio() override;
     };
 

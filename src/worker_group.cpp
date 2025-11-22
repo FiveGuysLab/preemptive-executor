@@ -5,8 +5,15 @@ void set_fifo_prio(int priority, std::thread& t){
     pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
 }
 
+void busy_wait_for(std::chrono::nanoseconds duration) {
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < duration) {
+        // busy wait
+    }
+}
+
 namespace preemptive_executor {
-    WorkerGroup::ReadyQueue::ReadyQueue(): num_working(0) {}
+    WorkerGroup::ReadyQueue::ReadyQueue(): num_pending(0) {}
 
     WorkerGroup::WorkerGroup(
         int priority_,
@@ -43,16 +50,13 @@ namespace preemptive_executor {
 
     void MutexGroup::update_prio() {
         auto& rq = this->ready_queue;
-        const int queue_size = static_cast<int>(rq.queue.size_approx());
-        const int working = rq.num_working.load();
-        const bool should_boost = (queue_size + working) > 1;
-        const bool currently_boosted = is_boosted.load();
 
-        if (should_boost == currently_boosted) {
+        const bool should_boost = rq.num_pending.load() > 1;
+        if (should_boost == is_boosted.load()) {
             return;
         }
 
-        if (this->threads.size() != 1) {
+        if (this->threads.size() != 1) { // Sanity check
             throw std::runtime_error("MutexGroup with multiple threads- invalid state");
         }
 
@@ -93,31 +97,29 @@ namespace preemptive_executor {
             }
 
             // 4: pop from ready queue (lock-free)
-            //  try_dequeue atomically removes an element from the queue and moves it into exec
-            //  This is equivalent to the original: swap(exec, queue.front()) + queue.pop()
+            auto& rq = this->ready_queue;
             std::unique_ptr<BundledExecutable> exec = nullptr;
-            {
-                auto& rq = this->ready_queue;
-                // try_dequeue returns false if queue is empty, and doesn't modify exec in that case
-                if (!rq.queue.try_dequeue(exec)) {
+            // try_dequeue returns false if queue is empty, and doesn't modify exec in that case
+            int failed_attempts = 0;
+            while (!rq.queue.try_dequeue(exec)) {
+                // dequeue failure is has a small chance of being a false negative
+                if (failed_attempts++ > 10) {
                     throw std::runtime_error("Ready Q state invalid");
                 }
-                // If try_dequeue succeeded, exec should be non-null, but check for safety
-                if (exec == nullptr) {
-                    throw std::runtime_error("Ready Q state invalid");
-                }
-                rq.num_working++;
+                // brief pause before retrying
+                busy_wait_for(spin_period);
+            }
+            // If try_dequeue succeeded, exec should be non-null, but check for safety
+            if (exec == nullptr) {
+                throw std::runtime_error("Ready Q state invalid");
             }
 
             //7: execute executable (placeholder; actual execution integrates with executor run loop)
             exec->run();
 
-            {
-                auto& rq = this->ready_queue;
-                rq.num_working--;
-                // Post-run possible unboost
-                this->update_prio();
-            }
+            rq.num_pending.fetch_sub(1);
+            // Post-run possible unboost
+            this->update_prio();
         }
     }
 }
