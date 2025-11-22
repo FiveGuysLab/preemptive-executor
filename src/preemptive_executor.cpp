@@ -106,13 +106,13 @@ namespace preemptive_executor
             }
             auto & worker_group = worker_it->second;
 
-            {
-                std::lock_guard<std::mutex> guard(worker_group->ready_queue.mutex);
-                for (auto & bundle : bundles) {
-                    worker_group->ready_queue.queue.push(std::move(bundle));
-                }
-                worker_group->update_prio();
+            auto ok = worker_group->ready_queue.queue.enqueue_bulk(std::make_move_iterator(bundles.begin()), bundles.size());
+            if (!ok) {
+                throw std::runtime_error("Failed to enqueue ready bundles to worker group (out of memory) " + std::to_string(tgid));
             }
+
+            worker_group->ready_queue.num_pending.fetch_add(static_cast<int>(bundles.size()));
+            worker_group->update_prio();
             worker_group->semaphore.release(static_cast<std::ptrdiff_t>(bundles.size()));
         }
 

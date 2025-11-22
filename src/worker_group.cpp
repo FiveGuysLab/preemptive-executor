@@ -5,8 +5,15 @@ void set_fifo_prio(int priority, std::thread& t){
     pthread_setschedparam(t.native_handle(), SCHED_FIFO, &param); // TODO: We need to test this behaviour
 }
 
+void busy_wait_for(std::chrono::nanoseconds duration) {
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < duration) {
+        // busy wait
+    }
+}
+
 namespace preemptive_executor {
-    WorkerGroup::ReadyQueue::ReadyQueue(): num_working(0) {}
+    WorkerGroup::ReadyQueue::ReadyQueue(): num_pending(0) {}
 
     WorkerGroup::WorkerGroup(
         int priority_,
@@ -42,26 +49,25 @@ namespace preemptive_executor {
     MutexGroup::~MutexGroup() {}
 
     void MutexGroup::update_prio() {
-        // std::lock_guard<std::mutex> guard(this->ready_queue.mutex);
-
         auto& rq = this->ready_queue;
-        const bool should_boost = (rq.queue.size() + rq.num_working) > 1;
-        if (should_boost == is_boosted) {
+
+        const bool should_boost = rq.num_pending.load() > 1;
+        if (should_boost == is_boosted.load()) {
             return;
         }
 
-        if (this->threads.size() != 1) {
+        if (this->threads.size() != 1) { // Sanity check
             throw std::runtime_error("MutexGroup with multiple threads- invalid state");
         }
 
         auto& t = *(this->threads.front());
         if (should_boost) {
             set_fifo_prio(MAX_FIFO_PRIO, t);
-            is_boosted = true;
+            is_boosted.store(true);
             return;
         }
         set_fifo_prio(this->priority, t);
-        is_boosted = false;
+        is_boosted.store(false);
     }
 
     void WorkerGroup::worker_main() {
@@ -90,31 +96,30 @@ namespace preemptive_executor {
                 break;
             }
 
-            //4: acquire ready queue mutex and 5: pop from ready queue
+            // 4: pop from ready queue (lock-free)
+            auto& rq = this->ready_queue;
             std::unique_ptr<BundledExecutable> exec = nullptr;
-            {
-                auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-
-                if (rq.queue.empty() || rq.queue.front() == nullptr) {
+            // try_dequeue returns false if queue is empty, and doesn't modify exec in that case
+            int failed_attempts = 0;
+            while (!rq.queue.try_dequeue(exec)) {
+                // dequeue failure is has a small chance of being a false negative
+                if (failed_attempts++ > 10) {
                     throw std::runtime_error("Ready Q state invalid");
                 }
-
-                std::swap(exec, rq.queue.front());
-                rq.queue.pop();
-                rq.num_working++;
+                // brief pause before retrying
+                busy_wait_for(spin_period);
+            }
+            // If try_dequeue succeeded, exec should be non-null, but check for safety
+            if (exec == nullptr) {
+                throw std::runtime_error("Ready Q state invalid");
             }
 
             //7: execute executable (placeholder; actual execution integrates with executor run loop)
             exec->run();
 
-            {
-                auto& rq = this->ready_queue;
-                std::lock_guard<std::mutex> guard(rq.mutex);
-                rq.num_working--;
-                // Post-run possible unboost
-                this->update_prio();
-            }
+            rq.num_pending.fetch_sub(1);
+            // Post-run possible unboost
+            this->update_prio();
         }
     }
 }
