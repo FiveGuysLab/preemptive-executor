@@ -17,6 +17,9 @@
 
 namespace preemptive_executor
 {
+    std::atomic<uint64_t> PreemptiveExecutor::SEM_SPIN_NS(0);
+    std::atomic<bool> PreemptiveExecutor::PROFILING_MODE(true);
+
     PreemptiveExecutor::PreemptiveExecutor(
         const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy,
         const std::unordered_map<std::string, userChain>& user_chains
@@ -149,8 +152,26 @@ namespace preemptive_executor
         //runs a while loop that calls wait for work
         while(rclcpp::ok(context_) && spinning.load()) {
             wait_for_work(std::chrono::nanoseconds(-1));
-
-            populate_ready_queues();
+            if (PROFILING_MODE.load()) {
+                auto start = std::chrono::steady_clock::now();
+                populate_ready_queues();
+                auto end = std::chrono::steady_clock::now();
+                if (++function_timing_iterations_ <= FUNCTION_TIMING_STARTUP_THRESHOLD) {
+                    continue;
+                }
+                auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+                overhead_ns_vector_.push_back(duration.count());
+                std::cout << "wait_for_work + populate_ready_queues duration: " << duration.count() << " ns" << std::endl;
+                if (function_timing_iterations_ >= FUNCTION_TIMING_RUN_THERESHOLD) {
+                    // stop timing
+                    PROFILING_MODE.store(false);
+                    // calculate median overhead
+                    SEM_SPIN_NS.store(calculate_spin_overhead(overhead_ns_vector_, 80));
+                }
+            } else {
+                // wait_for_work(std::chrono::nanoseconds(-1));
+                populate_ready_queues();
+            }
         }
     }
 }

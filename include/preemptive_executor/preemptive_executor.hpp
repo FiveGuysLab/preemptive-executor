@@ -1,6 +1,7 @@
 #ifndef PREEMPTIVE_EXECUTOR
 #define PREEMPTIVE_EXECUTOR
 
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <unordered_map>
@@ -39,6 +40,8 @@ namespace preemptive_executor
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
+        static std::atomic<uint64_t> SEM_SPIN_NS;
+        static std::atomic<bool> PROFILING_MODE;
 
     protected:
         //helper methods for preemptive executor
@@ -58,6 +61,27 @@ namespace preemptive_executor
         std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> thread_groups;
         const std::unordered_map<std::string, userChain>& user_chains;
         void load_timing_info();
+        
+        // constants for profiling
+        uint16_t FUNCTION_TIMING_RUN_THERESHOLD = 1000;
+        uint16_t FUNCTION_TIMING_STARTUP_THRESHOLD = 200;
+
+        // temp variables for profiling
+        uint16_t function_timing_iterations_ = 0;
+        std::vector<uint64_t> overhead_ns_vector_;
+
+        uint64_t calculate_spin_overhead(std::vector<uint64_t> &vector, double percentile) {
+            int n = vector.size();
+            std::sort(vector.begin(), vector.end());
+            double rank = percentile / 100.0 * n;
+            int index = (int)std::ceil(rank) - 1;
+
+            if (index > n - 1) {
+                index = n - 1;
+            }
+
+            return vector[index];
+        }
     };
 
 } 
