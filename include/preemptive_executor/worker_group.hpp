@@ -1,7 +1,6 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <thread>
 #include <vector>
 
@@ -24,20 +23,14 @@ namespace  preemptive_executor {
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) = 0;
 
         protected:
-            WorkerGroupBase(int priority_, int number_of_threads, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
+            WorkerGroupBase(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
 
             virtual void configure_thread(std::thread & thread);
             virtual void update_prio();
             virtual std::unique_ptr<BundledExecutable> take_next_ready_executable() = 0;
-            virtual size_t pending_executable_count() const = 0;
-            virtual void after_work_completed() = 0;
 
-            size_t working_count_locked() const;
-            void on_executable_complete();
             void worker_main();
 
-            mutable std::mutex ready_executables_mutex;
-            size_t num_working;
             int priority;
             std::vector<std::unique_ptr<std::thread>> threads;
             rclcpp::Context::SharedPtr exec_context;
@@ -45,17 +38,16 @@ namespace  preemptive_executor {
     };
 
     class WorkerGroup : public WorkerGroupBase {
-        class ReadyQueue { // TODO: Lock-free Q needed
+        class ReadyQueue {
             public:
                 ReadyQueue();
-                std::mutex mutex;
-                std::queue<std::unique_ptr<BundledExecutable>> queue;
+                moodycamel::ConcurrentQueue<std::unique_ptr<BundledExecutable>> queue;
+                std::atomic<int> num_pending;
         };
 
         protected:
             void configure_thread(std::thread & thread) override;
             std::unique_ptr<BundledExecutable> take_next_ready_executable() override;
-            size_t pending_executable_count() const override;
 
         public:
             WorkerGroup(int priority_, int number_of_threads, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
@@ -63,7 +55,6 @@ namespace  preemptive_executor {
             virtual void update_prio() override;
             virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) override;
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) override;
-            void after_work_completed() override;
 
         protected:
             ReadyQueue ready_queue;
@@ -72,7 +63,7 @@ namespace  preemptive_executor {
     class NonPrioWorkerGroup : public WorkerGroupBase {
         class ReadyVector {
             public:
-                ReadyVector();
+                ReadyVector() = default;
                 std::mutex mutex;
                 std::vector<std::unique_ptr<BundledExecutable>> items;
         };
@@ -84,21 +75,20 @@ namespace  preemptive_executor {
         protected:
             void configure_thread(std::thread & thread) override;
             std::unique_ptr<BundledExecutable> take_next_ready_executable() override;
-            size_t pending_executable_count() const override;
             virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) override;
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) override;
             void update_prio() override;
-            void after_work_completed() override;
             ReadyVector ready_vector;
     };
 
     class MutexGroup : public WorkerGroup {
         std::atomic<bool> is_boosted;
-        bool is_boosted;
 
         public:
             MutexGroup(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
             virtual ~MutexGroup();
+            virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) override;
+            virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) override;
             virtual void update_prio() override;
     };
 
