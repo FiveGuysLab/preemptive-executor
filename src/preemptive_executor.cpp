@@ -13,13 +13,11 @@
 #include "preemptive_executor/bundled_subscription.hpp"
 #include "preemptive_executor/bundled_timer.hpp"
 #include "preemptive_executor/callback_registry.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 
 namespace preemptive_executor
 {
-    std::atomic<uint64_t> PreemptiveExecutor::SEM_SPIN_NS(0);
-    std::atomic<bool> PreemptiveExecutor::PROFILING_MODE(true);
-
     PreemptiveExecutor::PreemptiveExecutor(
         const rclcpp::ExecutorOptions & options, memory_strategy::RTMemoryStrategy::SharedPtr rt_memory_strategy,
         const std::unordered_map<std::string, userChain>& user_chains
@@ -27,6 +25,17 @@ namespace preemptive_executor
     {
         if (memory_strategy_ != rt_memory_strategy_) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "rt_memory_strategy must be a derivation of options.memory_strategy");
+        }
+
+        // Create timing node and publisher if profiling mode is enabled
+        if (PROFILING_MODE) {
+            rclcpp::NodeOptions node_options;
+            node_options.context(options.context);
+            timing_node_ = std::make_shared<rclcpp::Node>("preemptive_executor_timing_node", node_options);
+            timing_publisher_ = timing_node_->create_publisher<std_msgs::msg::Bool>("preemptive_executor/timing_trigger", 10);
+            
+            // Add the timing node to this executor
+            this->add_node(timing_node_);
         }
     }
 
@@ -151,9 +160,16 @@ namespace preemptive_executor
 
         //runs a while loop that calls wait for work
         while(rclcpp::ok(context_) && spinning.load()) {
-            wait_for_work(std::chrono::nanoseconds(-1));
-            if (PROFILING_MODE.load()) {
+            if (PROFILING_MODE) {
+                // Publish timing trigger right before wait_for_work
+                if (timing_publisher_) {
+                    std_msgs::msg::Bool msg;
+                    msg.data = true;
+                    timing_publisher_->publish(msg);
+                }
+                
                 auto start = std::chrono::steady_clock::now();
+                wait_for_work(std::chrono::nanoseconds(-1));
                 populate_ready_queues();
                 auto end = std::chrono::steady_clock::now();
                 if (++function_timing_iterations_ <= FUNCTION_TIMING_STARTUP_THRESHOLD) {
@@ -164,12 +180,15 @@ namespace preemptive_executor
                 std::cout << "wait_for_work + populate_ready_queues duration: " << duration.count() << " ns" << std::endl;
                 if (function_timing_iterations_ >= FUNCTION_TIMING_RUN_THERESHOLD) {
                     // stop timing
-                    PROFILING_MODE.store(false);
-                    // calculate median overhead
-                    SEM_SPIN_NS.store(calculate_spin_overhead(overhead_ns_vector_, 80));
+                    PROFILING_MODE = false;
+                    // Remove the timing node from this executor when timing is done
+                    if (timing_node_) {
+                        this->remove_node(timing_node_);
+                    }
+                    SEM_SPIN_NS.store(calculate_spin_overhead(overhead_ns_vector_, 80.0));
                 }
             } else {
-                // wait_for_work(std::chrono::nanoseconds(-1));
+                wait_for_work(std::chrono::nanoseconds(-1));
                 populate_ready_queues();
             }
         }

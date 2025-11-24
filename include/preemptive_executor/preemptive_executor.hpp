@@ -9,6 +9,8 @@
 #include <semaphore>
 
 #include "rclcpp/executor.hpp"
+#include "rclcpp/node.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "preemptive_executor/rt_allocator_memory_strategy.hpp"
 #include "preemptive_executor/worker_group.hpp"
 #include "preemptive_executor/yaml_parser.hpp"
@@ -40,8 +42,8 @@ namespace preemptive_executor
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
-        static std::atomic<uint64_t> SEM_SPIN_NS;
-        static std::atomic<bool> PROFILING_MODE;
+        inline static std::atomic<uint64_t> SEM_SPIN_NS{0};
+        inline static bool PROFILING_MODE = true;
 
     protected:
         //helper methods for preemptive executor
@@ -69,6 +71,10 @@ namespace preemptive_executor
         // temp variables for profiling
         uint16_t function_timing_iterations_ = 0;
         std::vector<uint64_t> overhead_ns_vector_;
+
+        // Timing node and publisher for profiling
+        rclcpp::Node::SharedPtr timing_node_;
+        rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr timing_publisher_;
 
         uint64_t calculate_spin_overhead(std::vector<uint64_t> &vector, double percentile) {
             int n = vector.size();
