@@ -10,9 +10,6 @@ std::unordered_map<CallbackEntity, std::string, CallbackEntityHash> CallbackRegi
 
 CallbackRegistry::CallbackRegistry(const WeakCallbackGroupsToNodesMap& weak_groups_to_nodes,
                                    const std::unordered_map<std::string, userChain>& user_chains) {
-
-  std::cout << "Constructing CallbackRegistry" << std::endl;
-  std::cout << "Weak groups to nodes size: " << weak_groups_to_nodes.size() << std::endl;
   for (const auto& pair : weak_groups_to_nodes) {
     auto group = pair.first.lock();
     auto node = pair.second.lock();
