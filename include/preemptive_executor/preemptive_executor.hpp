@@ -13,6 +13,7 @@
 #include "preemptive_executor/yaml_parser.hpp"
 
 #define MAX_FIFO_PRIO 99
+#define CORE_COUNT 16 // TODO: make configurable
 
 namespace preemptive_executor
 {
@@ -54,6 +55,7 @@ namespace preemptive_executor
         
         //data structures for preemptive executor
         std::unordered_map<int, std::unique_ptr<WorkerGroupBase>> thread_group_id_worker_map;
+        std::unique_ptr<WorkerGroupBase> non_rt_worker_group;
         std::unique_ptr<std::unordered_map<void*, int>> callback_handle_to_threadgroup_id;
         std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> thread_groups;
         const std::unordered_map<std::string, userChain>& user_chains;

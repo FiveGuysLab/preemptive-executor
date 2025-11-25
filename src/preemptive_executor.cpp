@@ -40,10 +40,15 @@ namespace preemptive_executor
             } else if (thread_group.priority > 0) {
                 wg = std::make_unique<WorkerGroup>(thread_group.priority, thread_group.number_of_threads, context_, spinning);
             } else {
-                wg = std::make_unique<NonPrioWorkerGroup>(context_, spinning, thread_group.number_of_threads);
+                thread_group.number_of_threads = CORE_COUNT; // TODO: source from config
+                wg = std::make_unique<NonPrioWorkerGroup>(context_, spinning, CORE_COUNT);
             }
+            wg->configure_threads();
             thread_group_id_worker_map.emplace(thread_group.tg_id, std::move(wg));
         }
+
+        //spawn default non-RT worker group for callbacks not present in timing config
+        non_rt_worker_group = std::make_unique<NonPrioWorkerGroup>(context_, spinning, CORE_COUNT);
     }
 
     void PreemptiveExecutor::populate_ready_queues() {
@@ -51,19 +56,13 @@ namespace preemptive_executor
             return;
         }
 
-        if (thread_group_id_worker_map.empty()) {
+        if (thread_group_id_worker_map.empty() && !non_rt_worker_group) {
             return;
         }
 
 
         std::unordered_map<int, std::vector<std::unique_ptr<BundledExecutable>>> bundles_by_tgid;
-
-        auto emplace_bundle = [&bundles_by_tgid](int tgid, std::unique_ptr<BundledExecutable> bundle) {
-            if (!bundle) {
-                return;
-            }
-            bundles_by_tgid[tgid].push_back(std::move(bundle));
-        };
+        std::vector<std::unique_ptr<BundledExecutable>> non_rt_bundles;
 
         std::vector<rclcpp::SubscriptionBase::SharedPtr> ready_subscriptions;
         std::vector<rclcpp::TimerBase::SharedPtr> ready_timers;
@@ -78,12 +77,15 @@ namespace preemptive_executor
             }
 
             // TODO: There are unidentified subscriptions that show up here that were not in the timing info
-            if (!callback_handle_to_threadgroup_id->contains(bundle->get_raw_handle())) {
-                std::cout << "Warning: Subscription callback handle not found in timing info." << std::endl;
-                continue;
+            if (callback_handle_to_threadgroup_id &&
+                callback_handle_to_threadgroup_id->contains(bundle->get_raw_handle())) {
+                auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
+                bundles_by_tgid[target_tgid].push_back(std::move(bundle));
+            } else {
+                std::cout << "Warning: Subscription callback handle not found in timing info; dispatching to non-RT group."
+                          << std::endl;
+                non_rt_bundles.push_back(std::move(bundle));
             }
-            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
-            emplace_bundle(target_tgid, std::move(bundle));
         }
 
         for (auto & timer : ready_timers) {
@@ -92,8 +94,15 @@ namespace preemptive_executor
                 continue;
             }
 
-            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
-            emplace_bundle(target_tgid, std::move(bundle));
+            if (callback_handle_to_threadgroup_id &&
+                callback_handle_to_threadgroup_id->contains(bundle->get_raw_handle())) {
+                auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
+                bundles_by_tgid[target_tgid].push_back(std::move(bundle));
+            } else {
+                std::cout << "Warning: Timer callback handle not found in timing info; dispatching to non-RT group."
+                          << std::endl;
+                non_rt_bundles.push_back(std::move(bundle));
+            }
         }
 
         for (auto & [tgid, bundles] : bundles_by_tgid) {
@@ -112,6 +121,13 @@ namespace preemptive_executor
                 continue;
             }
             worker_group->semaphore.release(static_cast<std::ptrdiff_t>(scheduled));
+        }
+
+        if (non_rt_worker_group && !non_rt_bundles.empty()) {
+            auto scheduled = non_rt_worker_group->push_ready_executables(non_rt_bundles);
+            if (scheduled > 0) {
+                non_rt_worker_group->semaphore.release(static_cast<std::ptrdiff_t>(scheduled));
+            }
         }
 
         // TODO: services, clients, and waitables will be bundled once the dispatching story is defined.

@@ -21,11 +21,11 @@ namespace  preemptive_executor {
             std::counting_semaphore<_SEM_MAX_AT_LEAST> semaphore;
             virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) = 0;
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) = 0;
+            virtual void configure_threads();
 
         protected:
             WorkerGroupBase(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
 
-            virtual void configure_thread(std::thread & thread);
             virtual void update_prio();
             virtual std::unique_ptr<BundledExecutable> take_next_ready_executable() = 0;
 
@@ -45,18 +45,16 @@ namespace  preemptive_executor {
                 std::atomic<int> num_pending;
         };
 
-        protected:
-            void configure_thread(std::thread & thread) override;
-            std::unique_ptr<BundledExecutable> take_next_ready_executable() override;
-
         public:
             WorkerGroup(int priority_, int number_of_threads, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
             virtual ~WorkerGroup();
             virtual void update_prio() override;
             virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) override;
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) override;
+            void configure_threads() override;
 
         protected:
+            std::unique_ptr<BundledExecutable> take_next_ready_executable() override;
             ReadyQueue ready_queue;
     };
 
@@ -73,16 +71,17 @@ namespace  preemptive_executor {
             virtual ~NonPrioWorkerGroup();
 
         protected:
-            void configure_thread(std::thread & thread) override;
             std::unique_ptr<BundledExecutable> take_next_ready_executable() override;
             virtual size_t push_ready_executables(std::vector<std::unique_ptr<BundledExecutable>>& bundles) override;
             virtual void push_ready_executable(std::unique_ptr<BundledExecutable> bundle) override;
             void update_prio() override;
+            void configure_threads() override;
             ReadyVector ready_vector;
     };
 
     class MutexGroup : public WorkerGroup {
         std::atomic<bool> is_boosted;
+        void refresh_priority();
 
         public:
             MutexGroup(int priority_, rclcpp::Context::SharedPtr context, const std::atomic_bool& spinning);
