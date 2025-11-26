@@ -2,8 +2,27 @@
 
 #include <cmath>
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
 
 namespace preemptive_executor {
+
+std::string pretty_print_threadgroup_info(const ThreadGroupInfo& info) {
+  std::ostringstream oss;
+  oss << "+------------------------------------------+\n"
+      << "| ThreadGroup ID: " << std::setw(24) << info.threadgroup_id << " |\n"
+      << "+------------------------------------------+\n"
+      << "| Num Threads:    " << std::setw(24) << info.num_threads << " |\n"
+      << "| Fixed Priority: " << std::setw(24) << info.fixed_priority << " |\n"
+      << "| Mutex Group:    " << std::setw(24) << (info.is_mutex_group ? "true" : "false") << " |\n"
+      << "+------------------------------------------+\n"
+      << "| Callbacks:                               |\n";
+  for (const auto& callback : info.callbacks) {
+    oss << "|   - " << std::left << std::setw(37) << callback << "|\n";
+  }
+  oss << "+------------------------------------------+";
+  return oss.str();
+}
 
 // Initialize static pre-registration map
 std::unordered_map<CallbackEntity, std::string, CallbackEntityHash> CallbackRegistry::pre_registered_names_{};
@@ -67,6 +86,33 @@ int CallbackRegistry::generate_threadgroup_id() { return next_threadgroup_id_++;
 // Break user chains into threads based on graph structure and in-degrees
 TimingExport CallbackRegistry::callback_threadgroup_allocation() {
   std::map<uint32_t, std::vector<int>> deadline_to_threadgroup_id_map = {};
+
+  // Pretty print callback adjacency list
+  std::cout << "\n============ Callback Adjacency List ============\n";
+  for (const auto& [callback_name, adj_info] : adjacency_list_) {
+    std::cout << "[" << callback_name << "]\n"
+              << "  indegree: " << static_cast<int>(adj_info.indegree) << "\n"
+              << "  min_deadline: " << adj_info.min_deadline << "\n"
+              << "  outgoing: ";
+    if (adj_info.outgoing.empty()) {
+      std::cout << "(none)";
+    } else {
+      for (const auto& out : adj_info.outgoing) {
+        std::cout << out << " ";
+      }
+    }
+    std::cout << "\n  deadlines: [";
+    for (size_t i = 0; i < adj_info.deadlines.size(); ++i) {
+      std::cout << adj_info.deadlines[i] << (i < adj_info.deadlines.size() - 1 ? ", " : "");
+    }
+    std::cout << "]\n  periods: [";
+    for (size_t i = 0; i < adj_info.periods.size(); ++i) {
+      std::cout << adj_info.periods[i] << (i < adj_info.periods.size() - 1 ? ", " : "");
+    }
+    std::cout << "]\n\n";
+  }
+  std::cout << "=================================================\n\n";
+
   for (const auto& pair : adjacency_list_) {
     if (pair.second.indegree == 0) {
       recursive_callback_traversal(pair.first, 0, 0, deadline_to_threadgroup_id_map);
@@ -101,6 +147,17 @@ TimingExport CallbackRegistry::export_timing_information() {
   timing_export.callback_handle_to_threadgroup_id = std::make_unique<std::unordered_map<void*, int>>();
   timing_export.threadgroup_attributes = std::make_unique<std::unordered_map<int, ThreadGroupAttributes>>();
 
+  std::cout << "\n============= ThreadGroup Info ==============\n";
+  for (const auto& pair : threadgroup_callback_map_) {
+    const auto& threadgroup_info = pair.second;
+    std::cout << pretty_print_threadgroup_info(threadgroup_info) << "\n\n";
+    ThreadGroupAttributes attributes(threadgroup_info.threadgroup_id, threadgroup_info.num_threads,
+                                    threadgroup_info.fixed_priority, threadgroup_info.is_mutex_group);
+    (*timing_export.threadgroup_attributes).emplace(threadgroup_info.threadgroup_id, attributes);
+  }
+  std::cout << "==============================================\n";
+  
+
   for (const auto& pair : callback_map_) {
     const auto& callback_info = pair.second;
     void* raw_ptr = const_cast<void*>(callback_info.entity.get_raw_pointer());
@@ -110,12 +167,6 @@ TimingExport CallbackRegistry::export_timing_information() {
     (*timing_export.callback_handle_to_threadgroup_id)[raw_ptr] = callback_info.threadgroup_id;
   }
 
-  for (const auto& pair : threadgroup_callback_map_) {
-    const auto& threadgroup_info = pair.second;
-    ThreadGroupAttributes attributes(threadgroup_info.threadgroup_id, threadgroup_info.num_threads,
-                                    threadgroup_info.fixed_priority, threadgroup_info.is_mutex_group);
-    (*timing_export.threadgroup_attributes).emplace(threadgroup_info.threadgroup_id, attributes);
-  }
 
   // clear all internal data structures
   adjacency_list_.clear();
@@ -136,13 +187,20 @@ void CallbackRegistry::recursive_callback_traversal(const std::string& callback_
   }
   auto& callback_info = callback_it->second;
   // Acts as a visited set to avoid unnecessary recursion
+  std::cout << "callback_name: " << callback_name << " cb.threadgroup_id: " << callback_info.threadgroup_id << " threadgroup_id: " << threadgroup_id << std::endl;
   if (callback_info.threadgroup_id != 0) {
     return;
+  }
+
+  if (threadgroup_id) {
+    callback_info.threadgroup_id = threadgroup_id;
   }
 
   bool is_mutex_group = callback_info.callback_group->type() == rclcpp::CallbackGroupType::MutuallyExclusive;
   // First callback in new threadgroup or mutually exclusive callback group
   if (threadgroup_id == 0 || is_mutex_group) {
+    std::cout << "Creating new threadgroup for callback: " << callback_name << std::endl;
+
     // For mutex case, use existing threadgroup_id if exists
     int new_threadgroup_id;
     if (is_mutex_group && mutex_threadgroup_map_.contains(callback_info.callback_group)) {
@@ -169,20 +227,16 @@ void CallbackRegistry::recursive_callback_traversal(const std::string& callback_
   }
 
   const auto& outgoing = adjacency_list_[callback_name].outgoing;
+  if (outgoing.empty()) {
+    return;
+  }
   const auto& next_callback = *outgoing.begin();
-  if (adjacency_list_[next_callback].indegree == 1 && outgoing.size() == 1) {
-    // Next callback has a single incoming edge
+  std::cout << "before the if " << callback_name << " -> " << next_callback << "indegree: " << adjacency_list_[next_callback].indegree << "outgoing.size(): " << outgoing.size() << std::endl;
+  
+  if (outgoing.size() == 1) {
     threadgroup_callback_map_[threadgroup_id].callbacks.push_back(next_callback);
-
-    // if (!callback_map_.contains(next_callback)) {
-    //   throw std::runtime_error("Callback not found in callback map");
-    // }
-    // callback_map_[next_callback].threadgroup_id = threadgroup_id;
-    if (const auto next_it = callback_map_.find(next_callback); next_it != callback_map_.end()) {
-      next_it->second.threadgroup_id = threadgroup_id;
-    } else {
-      throw std::runtime_error("Callback not found in callback map");
-    }
+  }
+  if (adjacency_list_[next_callback].indegree == 1) {
     return recursive_callback_traversal(next_callback, threadgroup_id, prev_threadgroup_id, deadline_to_threadgroup_id_map);
   }
 
