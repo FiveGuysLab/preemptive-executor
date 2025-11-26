@@ -120,6 +120,7 @@ namespace preemptive_executor
             if (scheduled == 0) {
                 continue;
             }
+            worker_group->update_prio();
             worker_group->semaphore.release(static_cast<std::ptrdiff_t>(scheduled));
         }
 
