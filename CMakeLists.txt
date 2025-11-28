@@ -38,7 +38,13 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/concurrentqueue>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
-target_link_libraries(${PROJECT_NAME} PUBLIC
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  rcl
+  std_msgs
+  std_srvs
+)
+target_link_libraries(${PROJECT_NAME}
   rclcpp::rclcpp
   rcl::rcl
   Threads::Threads
