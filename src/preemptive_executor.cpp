@@ -149,7 +149,13 @@ namespace preemptive_executor
                 continue;
             }
 
-            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
+            auto raw_handle = bundle->get_raw_handle();
+            auto it = callback_handle_to_threadgroup_id->find(raw_handle);
+            if (it == callback_handle_to_threadgroup_id->end()) {
+                std::cout << "Warning: Timer callback handle not found in timing info." << std::endl;
+                continue;
+            }
+            auto target_tgid = it->second;
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
