@@ -56,7 +56,6 @@ namespace preemptive_executor
                     return;
                 }
 
-                pending_callback_groups.push_back({group_ptr, node_ptr});
                 pending_weak_groups_to_nodes_[group_ptr] = node_ptr;
             });
 
@@ -64,6 +63,7 @@ namespace preemptive_executor
     }
 
     void PreemptiveExecutor::spawn_worker_groups() {
+
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
 
@@ -86,6 +86,9 @@ namespace preemptive_executor
                     exec->spin();
                 });
             non_rt_callback_groups_spawned = true;
+        }
+        else {
+            throw std::runtime_error("Non-RT executor already spawned");
         }
 
         for(auto& pair : (*thread_groups)){
@@ -149,8 +152,7 @@ namespace preemptive_executor
             auto raw_handle = bundle->get_raw_handle();
             auto it = callback_handle_to_threadgroup_id->find(raw_handle);
             if (it == callback_handle_to_threadgroup_id->end()) {
-                std::cout << "Warning: Timer callback handle not found in timing info." << std::endl;
-                continue;
+                throw std::runtime_error("Timer callback handle not found in timing info.");
             }
             auto target_tgid = it->second;
             emplace_bundle(target_tgid, std::move(bundle));
@@ -190,44 +192,47 @@ namespace preemptive_executor
 
     void PreemptiveExecutor::classify_callback_groups() {
         if (!callback_handle_to_threadgroup_id) {
-            return;
+            throw std::runtime_error("Timing info missing before classifying callback groups");
         }
 
-        std::vector<std::pair<rclcpp::CallbackGroup::SharedPtr, rclcpp::node_interfaces::NodeBaseInterface::SharedPtr>> groups_to_process;
-        {
-            std::lock_guard<std::mutex> guard{mutex_};
-            groups_to_process.swap(pending_callback_groups);
-            pending_weak_groups_to_nodes_.clear();
-        }
-
-        for (const auto& entry : groups_to_process) {
-            const auto& group = entry.first;
-            const auto& node_ptr = entry.second;
+        for (const auto& entry : pending_weak_groups_to_nodes_) {
+            auto group = entry.first.lock();
+            auto node_ptr = entry.second.lock();
             if (!group || !node_ptr) {
                 continue;
             }
 
-            bool is_rt = false;
+            bool has_rt = false;
+            bool has_non_rt = false;
             group->collect_all_ptrs(
-                [this, &is_rt](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
-                    if (!subscription || is_rt) { return; }
-                    is_rt = callback_handle_to_threadgroup_id->contains(subscription.get());
+                [this, &has_rt, &has_non_rt](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
+                    if (!subscription) { return; }
+                    const bool in_map = callback_handle_to_threadgroup_id->contains(subscription.get());
+                    has_rt = has_rt || in_map;
+                    has_non_rt = has_non_rt || !in_map;
                 },
                 [](const rclcpp::ServiceBase::SharedPtr&) {},
                 [](const rclcpp::ClientBase::SharedPtr&) {},
-                [this, &is_rt](const rclcpp::TimerBase::SharedPtr& timer) {
-                    if (!timer || is_rt) { return; }
-                    is_rt = callback_handle_to_threadgroup_id->contains(timer.get());
+                [this, &has_rt, &has_non_rt](const rclcpp::TimerBase::SharedPtr& timer) {
+                    if (!timer) { return; }
+                    const bool in_map = callback_handle_to_threadgroup_id->contains(timer.get());
+                    has_rt = has_rt || in_map;
+                    has_non_rt = has_non_rt || !in_map;
                 },
                 [](const rclcpp::Waitable::SharedPtr&) {});
 
-            if (is_rt) {
-                this->add_callback_group_to_map(group, node_ptr, weak_groups_to_nodes_, true);
-                continue;
+            if (has_rt && has_non_rt) {
+                throw std::runtime_error("Mixed RT and non-RT callbacks in a single callback group");
             }
 
-            non_rt_callback_groups.push_back(entry);
+            if (has_rt) {
+                this->add_callback_group_to_map(group, node_ptr, weak_groups_to_nodes_, true);
+            } else {
+                non_rt_callback_groups.push_back({group, node_ptr});
+            }
         }
+
+        pending_weak_groups_to_nodes_.clear();
     }
 
     void PreemptiveExecutor::stop_non_rt_executor() {

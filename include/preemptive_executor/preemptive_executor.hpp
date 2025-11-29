@@ -64,7 +64,6 @@ namespace preemptive_executor
         void classify_callback_groups();
         void stop_non_rt_executor();
 
-        std::vector<std::pair<rclcpp::CallbackGroup::SharedPtr, rclcpp::node_interfaces::NodeBaseInterface::SharedPtr>> pending_callback_groups;
         rclcpp::memory_strategy::MemoryStrategy::WeakCallbackGroupsToNodesMap pending_weak_groups_to_nodes_;
         std::vector<std::pair<rclcpp::CallbackGroup::SharedPtr, rclcpp::node_interfaces::NodeBaseInterface::SharedPtr>> non_rt_callback_groups;
         std::vector<std::thread> non_rt_threads;
