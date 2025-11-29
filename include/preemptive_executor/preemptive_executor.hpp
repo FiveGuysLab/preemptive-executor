@@ -8,11 +8,13 @@
 #include <semaphore>
 
 #include "rclcpp/executor.hpp"
+#include "rclcpp/executors/multi_threaded_executor.hpp"
 #include "preemptive_executor/rt_allocator_memory_strategy.hpp"
 #include "preemptive_executor/worker_group.hpp"
 #include "preemptive_executor/yaml_parser.hpp"
 
 #define MAX_FIFO_PRIO 99
+#define CORE_COUNT 16 //TODO: make this a config
 
 namespace preemptive_executor
 {
@@ -39,6 +41,7 @@ namespace preemptive_executor
 
         RCLCPP_PUBLIC virtual ~PreemptiveExecutor(); // TODO:
         RCLCPP_PUBLIC void spin() override;
+        RCLCPP_PUBLIC void add_node(rclcpp::Node::SharedPtr node); 
 
     protected:
         //helper methods for preemptive executor
@@ -58,8 +61,16 @@ namespace preemptive_executor
         std::unique_ptr<std::unordered_map<int, ThreadGroupAttributes>> thread_groups;
         const std::unordered_map<std::string, userChain>& user_chains;
         void load_timing_info();
-    };
+        void classify_callback_groups();
+        void stop_non_rt_executor();
 
+        std::vector<std::pair<rclcpp::CallbackGroup::SharedPtr, rclcpp::node_interfaces::NodeBaseInterface::SharedPtr>> pending_callback_groups;
+        rclcpp::memory_strategy::MemoryStrategy::WeakCallbackGroupsToNodesMap pending_weak_groups_to_nodes_;
+        std::vector<std::pair<rclcpp::CallbackGroup::SharedPtr, rclcpp::node_interfaces::NodeBaseInterface::SharedPtr>> non_rt_callback_groups;
+        std::vector<std::thread> non_rt_threads;
+        std::shared_ptr<rclcpp::executors::MultiThreadedExecutor> non_rt_executor;
+        bool non_rt_callback_groups_spawned = false;
+    };
 } 
 
 #endif 
