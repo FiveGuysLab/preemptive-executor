@@ -71,7 +71,7 @@ namespace preemptive_executor
         if (!non_rt_callback_groups_spawned && !non_rt_callback_groups.empty()) {
             rclcpp::ExecutorOptions mt_options;
             mt_options.context = context_;
-            non_rt_executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(mt_options);
+            non_rt_executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(mt_options, CORE_COUNT);
             for (auto& entry : non_rt_callback_groups) {
                 const auto& group = entry.first;
                 const auto& node_ptr = entry.second;
@@ -81,13 +81,10 @@ namespace preemptive_executor
                 non_rt_executor->add_callback_group(group, node_ptr, false);
             }
 
-            non_rt_threads.reserve(CORE_COUNT);
-            for (int i = 0; i < CORE_COUNT; ++i) {
-                non_rt_threads.emplace_back(
-                    [exec = non_rt_executor]() {
-                        exec->spin();
-                    });
-            }
+            non_rt_threads.emplace_back(
+                [exec = non_rt_executor]() {
+                    exec->spin();
+                });
             non_rt_callback_groups_spawned = true;
         }
 
