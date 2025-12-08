@@ -14,7 +14,6 @@
 #include "preemptive_executor/bundled_timer.hpp"
 #include "preemptive_executor/callback_registry.hpp"
 
-
 namespace preemptive_executor
 {
     PreemptiveExecutor::PreemptiveExecutor(
@@ -27,11 +26,71 @@ namespace preemptive_executor
         }
     }
 
-    PreemptiveExecutor::~PreemptiveExecutor() {};
+    PreemptiveExecutor::~PreemptiveExecutor() {
+        stop_non_rt_executor();
+    }
+
+    void PreemptiveExecutor::add_node(rclcpp::Node::SharedPtr node) {
+        if (!node) {
+            throw std::runtime_error("Cannot add null node to executor");
+        }
+
+        auto node_ptr = node->get_node_base_interface();
+        std::atomic_bool & has_executor = node_ptr->get_associated_with_executor_atomic();
+        if (has_executor.exchange(true)) {
+            throw std::runtime_error(
+                std::string("Node '") + node_ptr->get_fully_qualified_name() +
+                "' has already been added to an executor.");
+        }
+
+        std::lock_guard<std::mutex> guard{mutex_};
+        node_ptr->for_each_callback_group(
+            [this, node_ptr](rclcpp::CallbackGroup::SharedPtr group_ptr)
+            {
+                if (!group_ptr) {
+                    return;
+                }
+
+                if (group_ptr->get_associated_with_executor_atomic().load() ||
+                    !group_ptr->automatically_add_to_executor_with_node()) {
+                    return;
+                }
+
+                pending_weak_groups_to_nodes_[group_ptr] = node_ptr;
+            });
+
+        weak_nodes_.push_back(node_ptr);
+    }
 
     void PreemptiveExecutor::spawn_worker_groups() {
+
         // thread groups have number of threads as an int 
         // iterate through vector of thread groups and spawn threads and populate one worker group per thread group
+
+        //if non rt callback groups are not spawned, then spawn CORE_COUNT amount of threads in total for non rt callback groups
+        if (!non_rt_callback_groups_spawned && !non_rt_callback_groups.empty()) {
+            rclcpp::ExecutorOptions mt_options;
+            mt_options.context = context_;
+            non_rt_executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(mt_options, CORE_COUNT);
+            for (auto& entry : non_rt_callback_groups) {
+                const auto& group = entry.first;
+                const auto& node_ptr = entry.second;
+                if (!group || !node_ptr) {
+                    continue;
+                }
+                non_rt_executor->add_callback_group(group, node_ptr, false);
+            }
+
+            non_rt_threads.emplace_back(
+                [exec = non_rt_executor]() {
+                    exec->spin();
+                });
+            non_rt_callback_groups_spawned = true;
+        }
+        else {
+            throw std::runtime_error("Non-RT executor already spawned");
+        }
+
         for(auto& pair : (*thread_groups)){
             auto& thread_group = pair.second;
             std::unique_ptr<WorkerGroup> wg = nullptr;
@@ -90,7 +149,12 @@ namespace preemptive_executor
                 continue;
             }
 
-            auto target_tgid = callback_handle_to_threadgroup_id->at(bundle->get_raw_handle());
+            auto raw_handle = bundle->get_raw_handle();
+            auto it = callback_handle_to_threadgroup_id->find(raw_handle);
+            if (it == callback_handle_to_threadgroup_id->end()) {
+                throw std::runtime_error("Timer callback handle not found in timing info.");
+            }
+            auto target_tgid = it->second;
             emplace_bundle(target_tgid, std::move(bundle));
         }
 
@@ -120,10 +184,69 @@ namespace preemptive_executor
     }
 
     void PreemptiveExecutor::load_timing_info() {
-        auto& registry = CallbackRegistry::get_instance(weak_groups_to_nodes_, user_chains);
+        auto& registry = CallbackRegistry::get_instance(pending_weak_groups_to_nodes_, user_chains);
         TimingExport result = registry.callback_threadgroup_allocation();
         std::swap(callback_handle_to_threadgroup_id, result.callback_handle_to_threadgroup_id);
         std::swap(thread_groups, result.threadgroup_attributes);
+    }
+
+    void PreemptiveExecutor::classify_callback_groups() {
+        if (!callback_handle_to_threadgroup_id) {
+            throw std::runtime_error("Timing info missing before classifying callback groups");
+        }
+
+        for (const auto& entry : pending_weak_groups_to_nodes_) {
+            auto group = entry.first.lock();
+            auto node_ptr = entry.second.lock();
+            if (!group || !node_ptr) {
+                continue;
+            }
+
+            bool has_rt = false;
+            bool has_non_rt = false;
+            group->collect_all_ptrs(
+                [this, &has_rt, &has_non_rt](const rclcpp::SubscriptionBase::SharedPtr& subscription) {
+                    if (!subscription) { return; }
+                    const bool in_map = callback_handle_to_threadgroup_id->contains(subscription.get());
+                    has_rt = has_rt || in_map;
+                    has_non_rt = has_non_rt || !in_map;
+                },
+                [](const rclcpp::ServiceBase::SharedPtr&) {},
+                [](const rclcpp::ClientBase::SharedPtr&) {},
+                [this, &has_rt, &has_non_rt](const rclcpp::TimerBase::SharedPtr& timer) {
+                    if (!timer) { return; }
+                    const bool in_map = callback_handle_to_threadgroup_id->contains(timer.get());
+                    has_rt = has_rt || in_map;
+                    has_non_rt = has_non_rt || !in_map;
+                },
+                [](const rclcpp::Waitable::SharedPtr&) {});
+
+            if (has_rt && has_non_rt) {
+                throw std::runtime_error("Mixed RT and non-RT callbacks in a single callback group");
+            }
+
+            if (has_rt) {
+                this->add_callback_group_to_map(group, node_ptr, weak_groups_to_nodes_, true);
+            } else {
+                non_rt_callback_groups.push_back({group, node_ptr});
+            }
+        }
+
+        pending_weak_groups_to_nodes_.clear();
+    }
+
+    void PreemptiveExecutor::stop_non_rt_executor() {
+        if (non_rt_executor) {
+            non_rt_executor->cancel();
+        }
+        for (auto& t : non_rt_threads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+        non_rt_threads.clear();
+        non_rt_executor.reset();
+        non_rt_callback_groups_spawned = false;
     }
 
     void PreemptiveExecutor::spin() {
@@ -143,7 +266,7 @@ namespace preemptive_executor
          *  */
 
         load_timing_info();
-
+        classify_callback_groups();
         spawn_worker_groups();
 
         //runs a while loop that calls wait for work
